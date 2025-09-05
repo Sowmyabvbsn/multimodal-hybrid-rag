@@ -1,0 +1,500 @@
+import streamlit as st
+import os
+import json
+import time
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+import pandas as pd
+from PIL import Image
+import tempfile
+import shutil
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Import our RAG components
+from retrieval.rag_pipeline import RAGPipeline
+
+
+# Configure Streamlit page
+st.set_page_config(
+    page_title="PDF RAG Pipeline",
+    page_icon="📚",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 2.5rem;
+        color: #1f77b4;
+        text-align: center;
+        margin-bottom: 2rem;
+    }
+    .search-result {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+        border-left: 4px solid #1f77b4;
+    }
+    .score-badge {
+        background-color: #1f77b4;
+        color: white;
+        padding: 0.25rem 0.5rem;
+        border-radius: 0.25rem;
+        font-weight: bold;
+    }
+    .metadata-info {
+        color: #6c757d;
+        font-size: 0.9rem;
+    }
+    .success-message {
+        background-color: #d4edda;
+        border: 1px solid #c3e6cb;
+        color: #155724;
+        padding: 1rem;
+        border-radius: 0.25rem;
+        margin: 1rem 0;
+    }
+    .error-message {
+        background-color: #f8d7da;
+        border: 1px solid #f5c6cb;
+        color: #721c24;
+        padding: 1rem;
+        border-radius: 0.25rem;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+def initialize_session_state():
+    """Initialize Streamlit session state variables"""
+    if 'pipeline' not in st.session_state:
+        st.session_state.pipeline = None
+    if 'hybrid_searcher' not in st.session_state:
+        st.session_state.hybrid_searcher = None
+    if 'documents_processed' not in st.session_state:
+        st.session_state.documents_processed = False
+    if 'chat_bot' not in st.session_state:
+        st.session_state.search_history = []
+    
+
+def setup_directories():
+    """Create necessary directories"""
+    directories = ["data/raw", "data/extracted"]
+    for dir_path in directories:
+        Path(dir_path).mkdir(parents=True, exist_ok=True)
+
+def load_source_files():
+    """Load all file names from data/raw into session state"""
+    raw_dir = Path("data/raw")    
+    files = [f.name for f in raw_dir.glob("*") if f.is_file()]
+    
+    st.session_state.source_files = files
+    return files
+
+def initialize_pipeline():
+    """Initialize the RAG pipeline"""
+    if 'pipeline' in st.session_state and st.session_state.pipeline is not None:
+        return st.session_state.pipeline
+    try:
+        pipeline = RAGPipeline()
+        load_source_files()
+        st.session_state.pipeline = pipeline
+        return pipeline
+    except Exception as e:
+        st.error(f"Failed to initialize pipeline: {e}")
+        return None
+    
+    except Exception as e:
+        st.error(f"Failed to initialize pipeline: {e}")
+        return None, None, None
+
+def render_search_result(result, index: int, search_type: str = "hybrid_dense"):
+    """Render a single search result"""
+    with st.container():
+        st.markdown(f"""
+            <div class="search-result" style="padding: 0.5rem 1rem; margin-bottom: 0.5rem;">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <span class="score-badge" style="font-weight: bold; background: #e3f0ff; color: #1769aa; border-radius: 4px; padding: 0.2rem 0.5rem; font-size: 0.9rem;">
+                        Score: {result.get('score', 0):.4f}
+                    </span>
+                    <h4 style="margin: 0; font-size: 1.1rem;">Result {index + 1}</h4>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        # Content preview
+        content = result.get('text', '')
+        if len(content) > 300:
+            with st.expander("Show full content", expanded=False):
+                st.text(content)
+            st.write(f"**Preview:** {content[:300]}...")
+        else:
+            st.write(f"**Content:** {content}")
+        
+        # Metadata
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.write(f"**Type:** {result.get('type', 'unknown')}")
+        with col2:
+            st.write(f"**Source:** {result.get('source_file', 'N/A')}")
+        with col3:
+            st.write(f"**Page:** {result.get('page_number', 'N/A')}")
+        with col4:
+            if result.get('section_header'):
+                st.write(f"**Section:** {result.get('section_header', 'N/A')}")
+
+        # Show image if available
+        if result.get('image_path') and os.path.exists(result['image_path']):
+            try:
+                with st.expander("View Image", expanded=False):
+                    image = Image.open(result['image_path'])
+                    st.image(image, caption=f"Image from page {result.get('page_number', 'N/A')}", width=300)
+            except Exception as e:
+                st.write(f"Error loading image: {e}")
+        
+        # Render Table html
+        if result.get('type') == 'table' and result.get('content'):
+            try:
+                with st.expander("View Table", expanded=False):
+                    st.markdown(result['content'], unsafe_allow_html=True)
+            except Exception as e:
+                st.write(f"Error rendering table: {e}")
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("---")
+
+def document_upload_page():
+    """Document upload and ingestion page"""
+    st.markdown('<h1 class="main-header">📚 Document Upload & Processing</h1>', unsafe_allow_html=True)
+    
+    # File uploader
+    st.subheader("Upload PDF Documents")
+    uploaded_files = st.file_uploader(
+        "Choose PDF files",
+        type=['pdf'],
+        accept_multiple_files=True,
+        help="Upload one or more PDF files to process"
+    )
+    
+    if uploaded_files:
+        saved_files = []
+        st.write(f"📄 {len(uploaded_files)} file(s) selected:")
+        for file in uploaded_files:
+            st.write(f"- {file.name} ({file.size:,} bytes)")
+
+
+        
+        col1, col2 = st.columns([1, 3])
+        
+        with col1:
+            process_btn = st.button("🚀 Process Documents", type="primary")
+        
+        if process_btn:
+            # Save uploaded files
+            setup_directories()
+            
+            with st.spinner("Saving uploaded files..."):
+                saved_files = []
+                for file in uploaded_files:
+                    file_path = Path("data/raw") / file.name
+                    with open(file_path, "wb") as f:
+                        f.write(file.getbuffer())
+                    saved_files.append(file_path)
+                
+                st.success(f"✅ Saved {len(saved_files)} files")
+            
+            # Process documents
+            with st.spinner("Processing documents... This may take a few minutes."):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                try:
+                    # Create collections
+                    status_text.text("Creating collections...")
+                    progress_bar.progress(10)
+                    st.session_state.pipeline.extractor
+                    
+                    # Process PDFs
+                    status_text.text("Extracting and processing PDFs...")
+                    progress_bar.progress(30)
+                    
+                    text_chunks = 0
+                    table_chunks = 0
+                    image_chunks = 0
+                    ingestion_result = {}
+
+                    for file in saved_files:
+                        status_text.text(f"Processing {file}...")
+                        chunks = st.session_state.pipeline.extract_from_pdf(file)
+                        status_text.text(f"Indexing {file}...")
+                        chunk_results = st.session_state.pipeline.embed_and_index(chunks)
+                        ingestion_result[str(file)] = chunk_results
+                        text_chunks += chunk_results.get("text_chunks", 0)
+                        table_chunks += chunk_results.get("table_chunks", 0)
+                        image_chunks += chunk_results.get("image_chunks", 0)
+
+                    progress_bar.progress(80)
+                    
+                    total_chunks = text_chunks + table_chunks + image_chunks
+                    if total_chunks > 0:
+                        
+                        progress_bar.progress(100)
+                        status_text.text("Processing completed!")
+                        
+                        st.session_state.documents_processed = True
+                        
+                        # Show results
+                        st.markdown('<div class="success-message">', unsafe_allow_html=True)
+                        st.success("🎉 Documents processed successfully!")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.metric("Total Chunks", total_chunks)
+                        with col2:
+                            st.metric("PDFs Processed", len(saved_files))
+                        
+                        # Show per-PDF statistics
+                        if ingestion_result:
+                            st.subheader("📊 Processing Statistics")
+                            pdf_stats = []
+                            for pdf_name, stats in ingestion_result.items():
+                                pdf_stats.append({
+                                    "PDF": pdf_name,
+                                    "Total Chunks": stats["text_chunks"]+ stats["table_chunks"] + stats["image_chunks"],
+                                    "Text": stats["text_chunks"],
+                                    "Tables": stats["table_chunks"],
+                                    "Images": stats["image_chunks"]
+                                })
+                            
+                            df = pd.DataFrame(pdf_stats)
+                            st.dataframe(df, use_container_width=True)
+                        
+                        st.markdown('</div>', unsafe_allow_html=True)
+                    else:
+                        st.error(f"Processing failed: {ingestion_result.get('message', 'Unknown error')}")
+                
+                except Exception as e:
+                    st.error(f"Error during processing: {e}")
+                finally:
+                    progress_bar.empty()
+                    status_text.empty()
+    
+    # Show current status
+    if st.session_state.documents_processed:
+        st.info("✅ Documents are ready for search. Go to the Search pages to query your documents.")
+    else:
+        st.info("ℹ️ Upload and process PDF documents to enable search functionality.")
+
+
+def hybrid_search_page():
+    """Hybrid search page"""
+    if not st.session_state.hybrid_searcher:
+        st.session_state.hybrid_searcher = st.session_state.pipeline.retriever
+
+    st.markdown('<h1 class="main-header">🔍 Hybrid Search</h1>', unsafe_allow_html=True)
+
+    st.subheader("Smart Search: Blend of Semantic, Keyword & Hybrid matching")
+
+    # Search interface
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        query = st.text_input(
+            "Enter your search query:",
+            placeholder="e.g., power failure troubleshooting, cooling system diagram",
+            help="Hybrid search works best with descriptive queries"
+        )
+    
+    with col2:
+        top_k = st.number_input("Results", min_value=1, max_value=20, value=5)
+    
+    # Advanced options
+    with st.expander("🔧 Advanced Options", expanded=False):
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            alpha = st.slider(
+                "Dense vs Sparse Weight",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.7,
+                help="0.0 = only sparse, 1.0 = only dense"
+            )
+        
+        with col2:
+            include_images = st.checkbox(
+                "Include Images",
+                value=True,
+                help="Search image content when relevant"
+            )
+        
+        with col3:
+            rerank_results = st.checkbox(
+                "Use Reranking",
+                value=False,
+                help="Apply ColBERT reranking for better results"
+            )
+    
+    # Filters
+    st.subheader("Filters")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        content_type = st.selectbox(
+            "Content Type",
+            options=["All", "text", "table", "image"],
+            help="Filter by content type"
+        )
+    with col3:
+        source_file = st.selectbox(
+            "Source File (optional)",
+            options=["All Files"] + st.session_state.source_files,
+            help="Filter by specific source file"
+        )
+    with col3:
+        page_number = st.number_input(
+            "Page Number (optional)",
+            min_value=0,
+            value=0,
+            help="Filter by specific page (0 = all pages)"
+        )
+    
+    # Search button
+    if st.button("🚀 Hybrid Search", type="primary") and query:
+        with st.spinner("Performing search..."):
+            try:
+                # Apply filters
+                chunk_filter = None if content_type == "All" else content_type
+                page_filter = None if page_number == 0 else page_number
+                source_filter = None if source_file == "All Files" else source_file
+
+                filters = {}
+                if chunk_filter:
+                    filters["metadata.type"] = chunk_filter
+                if page_filter:
+                    filters["metadata.page_number"] = page_filter
+                if source_filter:
+                    filters["metadata.source_file"] = source_filter
+
+
+                # Update alpha if changed
+                result_type = (
+                        "hybrid_dense" if 0.5 < alpha <= 0.9 else
+                        "hybrid_sparse" if 0.1 <= alpha <= 0.5 else
+                        "sparse" if alpha == 1.0 else
+                        "dense"
+                    )
+                
+                if rerank_results:
+                    # Use complete pipeline for reranking
+                    # results = st.session_state.pipeline.retriever.search(
+                    #     query=query,
+                    #     top_k=top_k,
+                    #     filters=chunk_filter,
+                    # )
+                    results = st.session_state.hybrid_searcher.search(
+                        query=query,
+                        top_k=top_k,
+                        filters=filters,
+                        result_type=result_type,
+                    )
+                else:
+                    # Use hybrid search without reranking
+                    results = st.session_state.hybrid_searcher.search(
+                        query=query,
+                        top_k=top_k,
+                        filters=filters,
+                        result_type=result_type,
+                    )
+
+                results = st.session_state.hybrid_searcher.process_results(results)
+
+                # Add to search history
+                st.session_state.search_history.append({
+                    "query": query,
+                    "type": result_type,
+                    "results_count": len(results),
+                    "timestamp": time.time()
+                })
+                
+                # Display results
+                if results:
+                    st.subheader(f"🎯 Found {len(results)} results")
+                    
+                    for i, result in enumerate(results):
+                        if hasattr(result, '__dict__'):
+                            result_dict = result.__dict__
+                        else:
+                            result_dict = result
+                        render_search_result(result_dict, i, result_type)
+                else:
+                    st.info("No results found. Try a different query or adjust filters.")
+                    
+            except Exception as e:
+                st.error(f"Hybrid search failed: {e}")
+
+def main():
+    """Main Streamlit application"""
+    initialize_session_state()
+    setup_directories()
+    initialize_pipeline()
+    
+    # Sidebar navigation
+    with st.sidebar:
+        st.title("📚 PDF RAG Pipeline")
+        st.markdown("---")
+        
+        page = st.selectbox(
+            "Choose a page:",
+            [
+                "📤 Document Upload",
+                "🔍 Hybrid Search",
+                "💬 Chatbot",
+                "📈 Analytics"
+            ]
+        )
+        
+        st.markdown("---")
+        st.subheader("System Status")
+        
+        # Connection status
+        try:
+            if st.session_state.pipeline:
+                st.success("✅ Pipeline Ready")
+            else:
+                st.warning("⚠️ Pipeline Not Initialized")
+        except:
+            st.error("❌ Connection Error")
+        
+        if st.session_state.documents_processed:
+            st.success("✅ Documents Processed")
+        else:
+            st.info("ℹ️ No Documents")
+        
+        st.markdown("---")
+        st.markdown("""
+        ### About
+        This is a complete multimodal RAG pipeline supporting:
+        - **Text, Tables, and Images** from PDFs
+        - **Dense + Sparse** hybrid search
+        - **ColBERT reranking** for improved results
+        - **Multiple search modes** for different use cases
+        """)
+        
+        st.markdown("---")
+        st.markdown("Built with Streamlit, Qdrant, and FastEmbed")
+    
+    # Main content area
+    if page == "📤 Document Upload":
+        document_upload_page()
+    elif page == "🔍 Hybrid Search":
+        hybrid_search_page()
+
+if __name__ == "__main__":
+    main()
