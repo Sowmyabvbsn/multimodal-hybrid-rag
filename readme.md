@@ -17,11 +17,37 @@ A comprehensive Retrieval-Augmented Generation (RAG) pipeline for multimodal PDF
 
 ### Production-Ready Features
 - **Streamlit Web Interface**: User-friendly document upload and search
-- **Docker Support**: Containerized deployment with all dependencies
 - **Qdrant Integration**: High-performance vector database with quantization
 - **Google AI Integration**: Optional Google embeddings for enhanced performance
 - **Comprehensive Logging**: Detailed processing and search analytics
 
+
+## 🎬 Demo
+
+Watch the full demo video here: [Demo Video](https://github.com/m-gopinath03/multimodal-hybrid-rag/blob/main/Demo.mp4)  
+
+Or click the images below to see specific features:
+
+### 1. Hybrid Search
+<p>
+  <a href="https://github.com/m-gopinath03/multimodal-hybrid-rag/blob/main/Demo.mp4">
+    <img src="https://github.com/m-gopinath03/multimodal-hybrid-rag/blob/main/hybrid_Search.png" width="500" style="margin-left:120px;"/>
+  </a>
+</p>
+
+### 2. Table Data Extraction
+<p>
+  <a href="https://github.com/m-gopinath03/multimodal-hybrid-rag/blob/main/Demo.mp4">
+    <img src="https://github.com/m-gopinath03/multimodal-hybrid-rag/blob/main/table_data.png" width="500" style="margin-left:120px;"/>
+  </a>
+</p>
+
+### 3. Image Data Extraction
+<p>
+  <a href="https://github.com/m-gopinath03/multimodal-hybrid-rag/blob/main/Demo.mp4">
+    <img src="https://github.com/m-gopinath03/multimodal-hybrid-rag/blob/main/image_data.png" width="500" style="margin-left:120px;"/>
+  </a>
+</p>
 ## 🏗️ Architecture
 
 ```
