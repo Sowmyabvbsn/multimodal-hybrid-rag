@@ -491,6 +491,28 @@ def multimodal_search_page():
         with col5:
             include_llm = st.checkbox("Include AI Response", value=True, 
                                     help="Generate AI response from search results")
+        
+        with st.expander("🌐 Advanced Options", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                web_search = st.checkbox("Include Web Search", value=True,
+                                        help="Include web search for additional context")
+            with col2:
+                model_selection = st.selectbox(
+                    "LLM Model",
+                    options=["llama3.1:8b", "llama3.1:70b", "llama3:8b", "gemma2:9b", "mistral:7b"],
+                    help="Select the LLM model for response generation"
+                )
+                
+                # Update model if changed
+                if st.session_state.rag_system and model_selection != st.session_state.rag_system.llm.model_name:
+                    if st.button("🔄 Switch Model"):
+                        with st.spinner("Switching model..."):
+                            success = st.session_state.rag_system.llm.switch_model(model_selection)
+                            if success:
+                                st.success(f"✅ Switched to {model_selection}")
+                            else:
+                                st.error(f"❌ Failed to switch to {model_selection}")
     
     # Search buttons
     col1, col2 = st.columns(2)
@@ -508,7 +530,7 @@ def multimodal_search_page():
 def perform_search(query: str, search_type: str, modality_filter: str, top_k: int, source_file: str, include_llm: bool, response_length: str = "medium"):
     """Perform the actual search operation"""
     
-    with st.spinner("🔍 Searching documents and generating AI response..."):
+    with st.spinner("🔍 Searching documents and generating comprehensive AI response with web research..."):
         try:
             # Prepare filters
             filters = {}
@@ -548,7 +570,8 @@ def perform_search(query: str, search_type: str, modality_filter: str, top_k: in
                     top_k=top_k,
                     modality_filter=modality,
                     include_llm_response=include_llm,
-                    response_length=response_length
+                    response_length=response_length,
+                    include_web_search=True
                 )
                 display_standard_results(result)
             
@@ -572,10 +595,10 @@ def display_standard_results(result: Dict[str, Any]):
     
     # AI Response
     if result.get('llm_response'):
-        st.subheader("🤖 Enhanced AI Response")
+        st.subheader("🤖 Comprehensive AI Response with Web Research")
         
         # Show confidence and model info
-        col1, col2, col3 = st.columns([2, 1, 1])
+        col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
         with col1:
             confidence = result.get('confidence', 0.0)
             confidence_color = "green" if confidence > 0.7 else "orange" if confidence > 0.4 else "red"
@@ -583,22 +606,158 @@ def display_standard_results(result: Dict[str, Any]):
                        unsafe_allow_html=True)
         with col2:
             model_info = result.get('metadata', {}).get('model_info', {})
-            model_type = model_info.get('model_type', 'Unknown')
             model_name = model_info.get('model_name', 'Unknown')
-            st.write(f"**Model:** {model_name} ({model_type})")
+            provider = model_info.get('provider', 'Unknown')
+            st.write(f"**Model:** {model_name}")
+            st.write(f"**Provider:** {provider}")
         with col3:
             citations_count = len(result.get('citations', []))
             st.write(f"**Citations:** {citations_count}")
+        with col4:
+            web_links_count = len(result.get('web_links', []))
+            st.write(f"**Web Sources:** {web_links_count}")
+            has_multimodal = result.get('metadata', {}).get('has_multimodal', False)
+            if has_multimodal:
+                st.write("🎭 **Multimodal Content**")
         
         # Display the answer
         st.markdown(f'<div class="ai-message">{result["llm_response"]}</div>', 
                    unsafe_allow_html=True)
         
+        # Show web links if available
+        web_links = result.get('web_links', [])
+        if web_links:
+            with st.expander("🌐 External Web Sources", expanded=False):
+                for i, link in enumerate(web_links, 1):
+                    st.markdown(f"**{i}. [{link['title']}]({link['url']})**")
+                    st.write(f"🔗 {link['url']}")
+                    st.write("")
+        
         # Show citations if available
         if result.get('citations'):
             with st.expander("📚 View Citations", expanded=False):
-                for citation in result['citations']:
-                    col1, col2, col3 = st.columns([1, 2, 1])
+                # Separate document and web citations
+                doc_citations = [c for c in result['citations'] if c.get('source_type') == 'document']
+                web_citations = [c for c in result['citations'] if c.get('source_type') == 'web']
+                
+                if doc_citations:
+                    st.write("**📄 Document Sources:**")
+                    for citation in doc_citations:
+                        col1, col2, col3 = st.columns([1, 2, 1])
+                        with col1:
+                            st.write(f"**[{citation['id']}]**")
+                        with col2:
+                            st.write(f"**{citation['source_file']}**")
+                            if citation.get('page_number'):
+                                st.write(f"Page {citation['page_number']}")
+                        with col3:
+                            st.write(f"Type: {citation['type']}")
+                            if citation.get('score'):
+                                st.write(f"Score: {citation['score']:.3f}")
+                
+                if web_citations:
+                    st.write("**🌐 Web Sources:**")
+                    for citation in web_citations:
+                        col1, col2 = st.columns([1, 3])
+                        with col1:
+                            st.write(f"**[{citation['id']}]**")
+                        with col2:
+                            st.write(f"**{citation.get('title', 'Web Source')}**")
+                            if citation.get('url'):
+                                st.markdown(f"🔗 [{citation['url']}]({citation['url']})")
+        
+        st.markdown("---")
+    
+    # Search Results
+    search_results = result.get('search_results', [])
+    if search_results:
+        metadata = result.get('metadata', {})
+        total_found = metadata.get('total_results_found', len(search_results))
+        st.subheader(f"🎯 Document Search Results ({len(search_results)} of {total_found} found)")
+        
+        for i, search_result in enumerate(search_results):
+            render_search_result(search_result, i)
+    else:
+        st.info("No document results found. The AI response above is based on web research.")
+
+def display_cross_modal_results(result: Dict[str, Any]):
+    """Display cross-modal search results"""
+    
+    # AI Response
+    if result.get('llm_response'):
+        st.subheader("🤖 Cross-Modal AI Analysis with Web Research")
+        
+        # Show enhanced metadata for cross-modal
+        col1, col2, col3, col4, col5 = st.columns(5)
+        with col1:
+            confidence = result.get('confidence', 0.0)
+            confidence_color = "green" if confidence > 0.7 else "orange" if confidence > 0.4 else "red"
+            st.markdown(f"**Confidence:** <span style='color: {confidence_color}'>{confidence:.2f}</span>", 
+                       unsafe_allow_html=True)
+        with col2:
+            citations_count = len(result.get('citations', []))
+            st.write(f"**Citations:** {citations_count}")
+        with col3:
+            web_links_count = len(result.get('web_links', []))
+            st.write(f"**Web Sources:** {web_links_count}")
+        with col4:
+            metadata = result.get('metadata', {})
+            total_results = metadata.get('total_results', 0)
+            st.write(f"**Total Found:** {total_results}")
+        with col5:
+            modality_counts = metadata.get('results_by_modality', {})
+            active_modalities = len([k for k, v in modality_counts.items() if v > 0])
+            st.write(f"**Modalities:** {active_modalities}/4")
+        
+        # Display the answer
+        st.markdown(f'<div class="ai-message">{result["llm_response"]}</div>', 
+                   unsafe_allow_html=True)
+        
+        # Show web links if available
+        web_links = result.get('web_links', [])
+        if web_links:
+            with st.expander("🌐 External Web Sources", expanded=False):
+                for i, link in enumerate(web_links, 1):
+                    st.markdown(f"**{i}. [{link['title']}]({link['url']})**")
+                    st.write(f"🔗 {link['url']}")
+                    st.write("")
+        
+        # Enhanced citations for cross-modal
+        if result.get('citations'):
+            with st.expander("📚 Cross-Modal Citations", expanded=False):
+                # Group citations by type
+                doc_citations = [c for c in result['citations'] if c.get('source_type') == 'document']
+                web_citations = [c for c in result['citations'] if c.get('source_type') == 'web']
+                
+                if doc_citations:
+                    # Group document citations by modality
+                    citations_by_modality = {}
+                    for citation in doc_citations:
+                        modality = citation.get('type', 'text')
+                        if modality not in citations_by_modality:
+                            citations_by_modality[modality] = []
+                        citations_by_modality[modality].append(citation)
+                    
+                    st.write("**📄 Document Sources by Modality:**")
+                    for modality, citations in citations_by_modality.items():
+                        st.write(f"**{modality.upper()} Sources:**")
+                        for citation in citations:
+                            col1, col2, col3 = st.columns([1, 2, 1])
+                            with col1:
+                                st.write(f"[{citation['id']}]")
+                            with col2:
+                                st.write(f"{citation['source_file']}")
+                                if citation.get('page_number'):
+                                    st.write(f"Page {citation['page_number']}")
+                            with col3:
+                                if citation.get('score'):
+                                    st.write(f"Score: {citation['score']:.3f}")
+                        st.write("")
+                
+                if web_citations:
+                    st.write("**🌐 Web Sources:**")
+                    for citation in web_citations:
+                        col1, col2 = st.columns([1, 3])
                     with col1:
                         st.write(f"**[{citation['id']}]**")
                     with col2:
@@ -608,83 +767,11 @@ def display_standard_results(result: Dict[str, Any]):
                     with col3:
                         st.write(f"Type: {citation['type']}")
                         st.write(f"Score: {citation['score']:.3f}")
-        
-        st.markdown("---")
-    
-    # Search Results
-    search_results = result.get('search_results', [])
-    if search_results:
-        metadata = result.get('metadata', {})
-        total_found = metadata.get('total_results_found', len(search_results))
-        st.subheader(f"🎯 Search Results ({len(search_results)} of {total_found} found)")
-        
-        for i, search_result in enumerate(search_results):
-            render_search_result(search_result, i)
-    else:
-        st.info("No results found. Try a different query or adjust filters.")
-
-def display_cross_modal_results(result: Dict[str, Any]):
-    """Display cross-modal search results"""
-    
-    # AI Response
-    if result.get('llm_response'):
-        st.subheader("🤖 Cross-Modal AI Analysis")
-        
-        # Show enhanced metadata for cross-modal
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            confidence = result.get('confidence', 0.0)
-            confidence_color = "green" if confidence > 0.7 else "orange" if confidence > 0.4 else "red"
-            st.markdown(f"**Confidence:** <span style='color: {confidence_color}'>{confidence:.2f}</span>", 
-                       unsafe_allow_html=True)
-        with col2:
-            citations_count = len(result.get('citations', []))
-            st.write(f"**Citations:** {citations_count}")
-        with col3:
-            metadata = result.get('metadata', {})
-            total_results = metadata.get('total_results', 0)
-            st.write(f"**Total Found:** {total_results}")
-        with col4:
-            modality_counts = metadata.get('results_by_modality', {})
-            active_modalities = len([k for k, v in modality_counts.items() if v > 0])
-            st.write(f"**Modalities:** {active_modalities}/4")
-        
-        # Display the answer
-        st.markdown(f'<div class="ai-message">{result["llm_response"]}</div>', 
-                   unsafe_allow_html=True)
-        
-        # Enhanced citations for cross-modal
-        if result.get('citations'):
-            with st.expander("📚 Cross-Modal Citations", expanded=False):
-                # Group citations by modality
-                citations_by_modality = {}
-                for citation in result['citations']:
-                    modality = citation.get('type', 'text')
-                    if modality not in citations_by_modality:
-                        citations_by_modality[modality] = []
-                    citations_by_modality[modality].append(citation)
-                
-                for modality, citations in citations_by_modality.items():
-                    st.write(f"**{modality.upper()} Sources:**")
-                    for citation in citations:
-                        col1, col2, col3 = st.columns([1, 2, 1])
-                        with col1:
-                            st.write(f"[{citation['id']}]")
-                        with col2:
-                            st.write(f"{citation['source_file']}")
-                            if citation.get('page_number'):
-                                st.write(f"Page {citation['page_number']}")
-                        with col3:
-                            st.write(f"Score: {citation['score']:.3f}")
-                    st.write("")
-        
-        st.markdown("---")
-    
     # Cross-modal results
     cross_results = result.get('cross_modal_results', {})
     
     if any(cross_results.values()):
-        st.subheader("🔄 Cross-Modal Results")
+        st.subheader("🔄 Cross-Modal Document Results")
         
         # Summary metrics
         col1, col2, col3, col4 = st.columns(4)
@@ -994,11 +1081,13 @@ def main():
         - **🖼️ Image OCR** with CLIP embeddings  
         - **🎵 Audio transcription** with Whisper
         - **🔍 Cross-modal search** with FAISS
-        - **🤖 Enhanced offline LLM** with quantization
+        - **🤖 OllamaFreeAPI LLM** with multiple models
+        - **🌐 Web search integration** for comprehensive answers
         - **📊 Real-time analytics**
-        - **🔒 Fully offline** operation
+        - **🔗 External links** and citations
         - **📚 Citation support** with confidence scores
         - **🧠 Query complexity analysis**
+        - **🎭 Multimodal content** understanding
         """)
         
         
