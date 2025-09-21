@@ -14,7 +14,7 @@ try:
     from ingestion.offline_extract import OfflineExtractor
     from ingestion.offline_embeddings import OfflineEmbeddingProcessor
     from retrieval.offline_search import OfflineSearch
-    from retrieval.offline_rag import OfflineRAG
+    from retrieval.enhanced_offline_rag import EnhancedOfflineRAG
 except ImportError as e:
     st.error(f"Failed to import offline RAG components: {e}")
     st.stop()
@@ -120,7 +120,7 @@ def initialize_rag_system():
         return st.session_state.rag_system
     
     try:
-        rag_system = OfflineRAG()
+        rag_system = EnhancedOfflineRAG()
         
         # Check if system initialization was successful
         if not rag_system.search.processor:
@@ -418,6 +418,21 @@ def multimodal_search_page():
         st.warning("⚠️ Please upload and process documents first before searching.")
         return
 
+    # Query complexity analysis
+    if 'last_query' in st.session_state and st.session_state.last_query:
+        with st.expander("🧠 Query Analysis", expanded=False):
+            analysis = st.session_state.rag_system.analyze_query_complexity(st.session_state.last_query)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.write(f"**Question Type:** {', '.join(analysis['question_types'])}")
+            with col2:
+                st.write(f"**Complexity:** {analysis['complexity_score']:.2f}")
+            with col3:
+                st.write(f"**Recommended Results:** {analysis['recommended_top_k']}")
+            
+            if analysis['preferred_modalities']:
+                st.write(f"**Preferred Modalities:** {', '.join(analysis['preferred_modalities'])}")
+
     # Search interface
     col1, col2 = st.columns([3, 1])
     
@@ -437,7 +452,7 @@ def multimodal_search_page():
     
     # Advanced filters
     with st.expander("🔧 Advanced Filters", expanded=False):
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         
         with col1:
             modality_filter = st.selectbox(
@@ -447,16 +462,24 @@ def multimodal_search_page():
             )
         
         with col2:
-            top_k = st.slider("Max Results", min_value=1, max_value=20, value=8)
+            top_k = st.slider("Max Results", min_value=1, max_value=25, value=10)
         
         with col3:
+            response_length = st.selectbox(
+                "Response Length",
+                options=["short", "medium", "long"],
+                index=1,
+                help="Length of AI-generated response"
+            )
+        
+        with col4:
             source_file = st.selectbox(
                 "Source File",
                 options=["All Files"] + st.session_state.source_files,
                 help="Filter by specific source file"
             )
         
-        with col4:
+        with col5:
             include_llm = st.checkbox("Include AI Response", value=True, 
                                     help="Generate AI response from search results")
     
@@ -470,12 +493,13 @@ def multimodal_search_page():
             search_btn = True
     
     if search_btn and query and st.session_state.rag_system:
-        perform_search(query, search_type, modality_filter, top_k, source_file, include_llm)
+        st.session_state.last_query = query
+        perform_search(query, search_type, modality_filter, top_k, source_file, include_llm, response_length)
 
-def perform_search(query: str, search_type: str, modality_filter: str, top_k: int, source_file: str, include_llm: bool):
+def perform_search(query: str, search_type: str, modality_filter: str, top_k: int, source_file: str, include_llm: bool, response_length: str = "medium"):
     """Perform the actual search operation"""
     
-    with st.spinner("🔍 Searching across all modalities..."):
+    with st.spinner("🔍 Searching and generating AI response..."):
         try:
             # Prepare filters
             filters = {}
@@ -484,7 +508,11 @@ def perform_search(query: str, search_type: str, modality_filter: str, top_k: in
             
             # Perform search based on type
             if search_type == "Cross-Modal":
-                result = st.session_state.rag_system.cross_modal_query(query, top_k=top_k)
+                result = st.session_state.rag_system.cross_modal_query(
+                    query, 
+                    top_k=top_k,
+                    response_length=response_length
+                )
                 display_cross_modal_results(result)
             else:
                 # Standard search
@@ -493,7 +521,8 @@ def perform_search(query: str, search_type: str, modality_filter: str, top_k: in
                     question=query,
                     top_k=top_k,
                     modality_filter=modality,
-                    include_llm_response=include_llm
+                    include_llm_response=include_llm,
+                    response_length=response_length
                 )
                 display_standard_results(result)
             
@@ -503,7 +532,9 @@ def perform_search(query: str, search_type: str, modality_filter: str, top_k: in
                 "type": search_type.lower(),
                 "results_count": len(result.get('search_results', [])),
                 "timestamp": time.time(),
-                "modality_filter": modality_filter
+                "modality_filter": modality_filter,
+                "confidence": result.get('confidence', 0.0),
+                "has_llm_response": bool(result.get('llm_response'))
             })
             
         except Exception as e:
@@ -515,15 +546,49 @@ def display_standard_results(result: Dict[str, Any]):
     
     # AI Response
     if result.get('llm_response'):
-        st.subheader("🤖 AI Response")
+        st.subheader("🤖 AI-Generated Answer")
+        
+        # Show confidence and model info
+        col1, col2, col3 = st.columns([2, 1, 1])
+        with col1:
+            confidence = result.get('confidence', 0.0)
+            confidence_color = "green" if confidence > 0.7 else "orange" if confidence > 0.4 else "red"
+            st.markdown(f"**Confidence:** <span style='color: {confidence_color}'>{confidence:.2f}</span>", 
+                       unsafe_allow_html=True)
+        with col2:
+            model_info = result.get('metadata', {}).get('model_info', {})
+            st.write(f"**Model:** {model_info.get('model_name', 'Unknown')}")
+        with col3:
+            citations_count = len(result.get('citations', []))
+            st.write(f"**Citations:** {citations_count}")
+        
+        # Display the answer
         st.markdown(f'<div class="ai-message">{result["llm_response"]}</div>', 
                    unsafe_allow_html=True)
+        
+        # Show citations if available
+        if result.get('citations'):
+            with st.expander("📚 View Citations", expanded=False):
+                for citation in result['citations']:
+                    col1, col2, col3 = st.columns([1, 2, 1])
+                    with col1:
+                        st.write(f"**[{citation['id']}]**")
+                    with col2:
+                        st.write(f"**{citation['source_file']}**")
+                        if citation.get('page_number'):
+                            st.write(f"Page {citation['page_number']}")
+                    with col3:
+                        st.write(f"Type: {citation['type']}")
+                        st.write(f"Score: {citation['score']:.3f}")
+        
         st.markdown("---")
     
     # Search Results
     search_results = result.get('search_results', [])
     if search_results:
-        st.subheader(f"🎯 Found {len(search_results)} results")
+        metadata = result.get('metadata', {})
+        total_found = metadata.get('total_results_found', len(search_results))
+        st.subheader(f"🎯 Search Results ({len(search_results)} of {total_found} found)")
         
         for i, search_result in enumerate(search_results):
             render_search_result(search_result, i)
@@ -535,9 +600,56 @@ def display_cross_modal_results(result: Dict[str, Any]):
     
     # AI Response
     if result.get('llm_response'):
-        st.subheader("🤖 AI Response")
+        st.subheader("🤖 Cross-Modal AI Analysis")
+        
+        # Show enhanced metadata for cross-modal
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            confidence = result.get('confidence', 0.0)
+            confidence_color = "green" if confidence > 0.7 else "orange" if confidence > 0.4 else "red"
+            st.markdown(f"**Confidence:** <span style='color: {confidence_color}'>{confidence:.2f}</span>", 
+                       unsafe_allow_html=True)
+        with col2:
+            citations_count = len(result.get('citations', []))
+            st.write(f"**Citations:** {citations_count}")
+        with col3:
+            metadata = result.get('metadata', {})
+            total_results = metadata.get('total_results', 0)
+            st.write(f"**Total Found:** {total_results}")
+        with col4:
+            modality_counts = metadata.get('results_by_modality', {})
+            active_modalities = len([k for k, v in modality_counts.items() if v > 0])
+            st.write(f"**Modalities:** {active_modalities}/4")
+        
+        # Display the answer
         st.markdown(f'<div class="ai-message">{result["llm_response"]}</div>', 
                    unsafe_allow_html=True)
+        
+        # Enhanced citations for cross-modal
+        if result.get('citations'):
+            with st.expander("📚 Cross-Modal Citations", expanded=False):
+                # Group citations by modality
+                citations_by_modality = {}
+                for citation in result['citations']:
+                    modality = citation.get('type', 'text')
+                    if modality not in citations_by_modality:
+                        citations_by_modality[modality] = []
+                    citations_by_modality[modality].append(citation)
+                
+                for modality, citations in citations_by_modality.items():
+                    st.write(f"**{modality.upper()} Sources:**")
+                    for citation in citations:
+                        col1, col2, col3 = st.columns([1, 2, 1])
+                        with col1:
+                            st.write(f"[{citation['id']}]")
+                        with col2:
+                            st.write(f"{citation['source_file']}")
+                            if citation.get('page_number'):
+                                st.write(f"Page {citation['page_number']}")
+                        with col3:
+                            st.write(f"Score: {citation['score']:.3f}")
+                    st.write("")
+        
         st.markdown("---")
     
     # Cross-modal results
@@ -579,8 +691,10 @@ def chat_interface_page():
     with st.sidebar:
         st.subheader("💬 Chat Settings")
         max_results = st.slider("Max Search Results", 1, 10, 5)
+        response_length = st.selectbox("Response Length", ["short", "medium", "long"], index=1)
         include_sources = st.checkbox("Show Sources", value=True)
         chat_mode = st.selectbox("Chat Mode", ["Standard", "Cross-Modal"])
+        show_confidence = st.checkbox("Show Confidence", value=True)
         
         if st.button("🗑️ Clear Chat History"):
             st.session_state.chat_history = []
@@ -598,12 +712,28 @@ def chat_interface_page():
                 st.markdown(f'<div class="chat-message ai-message">🤖 **AI:** {message["content"]}</div>', 
                            unsafe_allow_html=True)
                 
+                # Add confidence indicator if available
+                if show_confidence and 'confidence' in message:
+                    confidence = message['confidence']
+                    confidence_color = "green" if confidence > 0.7 else "orange" if confidence > 0.4 else "red"
+                    confidence_text = f" <span style='color: {confidence_color}; font-size: 0.8em;'>(Confidence: {confidence:.2f})</span>"
+                    ai_header = f"🤖 **AI:**{confidence_text}"
+                else:
+                    ai_header = "🤖 **AI:**"
+                
+                st.markdown(f'<div class="chat-message ai-message">{ai_header} {message["content"]}</div>')
                 # Show sources if available
                 if include_sources and 'sources' in message:
-                    with st.expander("📚 Sources", expanded=False):
+                    with st.expander(f"📚 Sources ({len(message['sources'])})", expanded=False):
                         for j, source in enumerate(message['sources'], 1):
-                            st.write(f"{j}. **{source['source_file']}** (Score: {source['score']:.3f})")
-                            st.write(f"   {source['text'][:200]}...")
+                            col1, col2 = st.columns([3, 1])
+                            with col1:
+                                st.write(f"**{j}. {source['source_file']}**")
+                                if source.get('page_number'):
+                                    st.write(f"   Page {source['page_number']} | Type: {source.get('type', 'text')}")
+                                st.write(f"   {source['text'][:150]}...")
+                            with col2:
+                                st.write(f"Score: {source['score']:.3f}")
     
     # Chat input
     user_input = st.chat_input("Ask me anything about your documents...")
@@ -617,22 +747,33 @@ def chat_interface_page():
         })
         
         # Generate AI response
-        with st.spinner("🤖 Thinking..."):
+        with st.spinner("🤖 Analyzing documents and generating response..."):
             try:
                 if chat_mode == "Cross-Modal":
-                    result = st.session_state.rag_system.cross_modal_query(user_input, top_k=max_results)
+                    result = st.session_state.rag_system.cross_modal_query(
+                        user_input, 
+                        top_k=max_results,
+                        response_length=response_length
+                    )
                     ai_response = result.get('llm_response', 'Sorry, I could not generate a response.')
                     sources = result.get('combined_results', [])
+                    confidence = result.get('confidence', 0.0)
                 else:
-                    result = st.session_state.rag_system.query(user_input, top_k=max_results)
+                    result = st.session_state.rag_system.query(
+                        user_input, 
+                        top_k=max_results,
+                        response_length=response_length
+                    )
                     ai_response = result.get('llm_response', 'Sorry, I could not generate a response.')
                     sources = result.get('search_results', [])
+                    confidence = result.get('confidence', 0.0)
                 
                 # Add AI response to history
                 ai_message = {
                     'role': 'assistant',
                     'content': ai_response,
-                    'timestamp': time.time()
+                    'timestamp': time.time(),
+                    'confidence': confidence
                 }
                 
                 if include_sources and sources:
@@ -645,6 +786,13 @@ def chat_interface_page():
                 
             except Exception as e:
                 st.error(f"Failed to generate response: {e}")
+                # Add error message to chat
+                st.session_state.chat_history.append({
+                    'role': 'assistant',
+                    'content': f"I encountered an error: {str(e)}. Please try rephrasing your question.",
+                    'timestamp': time.time(),
+                    'confidence': 0.0
+                })
 
 def analytics_dashboard():
     """Enhanced analytics and statistics dashboard"""
@@ -788,9 +936,11 @@ def main():
         - **🖼️ Image OCR** with CLIP embeddings  
         - **🎵 Audio transcription** with Whisper
         - **🔍 Cross-modal search** with FAISS
-        - **🤖 Offline LLM** responses
+        - **🤖 Enhanced offline LLM** with quantization
         - **📊 Real-time analytics**
         - **🔒 Fully offline** operation
+        - **📚 Citation support** with confidence scores
+        - **🧠 Query complexity analysis**
         """)
         
         

@@ -4,6 +4,8 @@ sentence-transformers>=2.2.2
 transformers>=4.35.0
 torch>=2.0.0
 torchvision>=0.15.0
+accelerate>=0.24.0
+bitsandbytes>=0.41.0
 
 # Multimodal processing
 python-docx>=0.8.11
@@ -11,6 +13,7 @@ openai-whisper>=20231117
 opencv-python>=4.8.0
 pytesseract>=0.3.10
 faiss-cpu>=1.7.4
+clip-by-openai>=1.0
 
 # PDF processing
 pymupdf>=1.23.0
@@ -26,3 +29,5 @@ tqdm>=4.65.0
 # Additional utilities
 python-dotenv>=1.0.0
 plotly>=5.17.0
+langchain>=0.1.0
+langchain-community>=0.0.10
