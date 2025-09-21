@@ -120,18 +120,27 @@ def initialize_rag_system():
         return st.session_state.rag_system
     
     try:
-        rag_system = EnhancedOfflineRAG()
+        with st.spinner("🚀 Initializing Enhanced RAG System..."):
+            rag_system = EnhancedOfflineRAG()
         
         # Check if system initialization was successful
         if not rag_system.search.processor:
             st.error("❌ Failed to initialize FAISS database. Please check your setup.")
             return None
         
+        # Perform health check
+        health = rag_system.health_check()
+        if health['overall_status'] != 'healthy':
+            st.warning(f"⚠️ System Status: {health['overall_status']}")
+            for rec in health['recommendations']:
+                st.info(f"💡 {rec}")
+        
         load_source_files()
         st.session_state.rag_system = rag_system
         return rag_system
     except Exception as e:
         st.error(f"Failed to initialize RAG system: {e}")
+        st.exception(e)
         return None
 
 def get_file_icon(file_type: str) -> str:
@@ -499,12 +508,29 @@ def multimodal_search_page():
 def perform_search(query: str, search_type: str, modality_filter: str, top_k: int, source_file: str, include_llm: bool, response_length: str = "medium"):
     """Perform the actual search operation"""
     
-    with st.spinner("🔍 Searching and generating AI response..."):
+    with st.spinner("🔍 Searching documents and generating AI response..."):
         try:
             # Prepare filters
             filters = {}
             if source_file != "All Files":
                 filters['source_file'] = source_file
+            
+            # Show query analysis
+            if st.session_state.rag_system:
+                analysis = st.session_state.rag_system.analyze_query_complexity(query)
+                with st.expander("🧠 Query Analysis", expanded=False):
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.write(f"**Question Type:** {', '.join(analysis['question_types'])}")
+                    with col2:
+                        st.write(f"**Complexity:** {analysis['complexity_score']:.2f}")
+                    with col3:
+                        st.write(f"**Recommended Results:** {analysis['recommended_top_k']}")
+                    
+                    if analysis['preferred_modalities']:
+                        st.write(f"**Preferred Modalities:** {', '.join(analysis['preferred_modalities'])}")
+                    if analysis['requires_cross_modal']:
+                        st.info("💡 This query might benefit from cross-modal search")
             
             # Perform search based on type
             if search_type == "Cross-Modal":
@@ -546,7 +572,7 @@ def display_standard_results(result: Dict[str, Any]):
     
     # AI Response
     if result.get('llm_response'):
-        st.subheader("🤖 AI-Generated Answer")
+        st.subheader("🤖 Enhanced AI Response")
         
         # Show confidence and model info
         col1, col2, col3 = st.columns([2, 1, 1])
@@ -557,7 +583,9 @@ def display_standard_results(result: Dict[str, Any]):
                        unsafe_allow_html=True)
         with col2:
             model_info = result.get('metadata', {}).get('model_info', {})
-            st.write(f"**Model:** {model_info.get('model_name', 'Unknown')}")
+            model_type = model_info.get('model_type', 'Unknown')
+            model_name = model_info.get('model_name', 'Unknown')
+            st.write(f"**Model:** {model_name} ({model_type})")
         with col3:
             citations_count = len(result.get('citations', []))
             st.write(f"**Citations:** {citations_count}")
@@ -909,9 +937,39 @@ def main():
         st.markdown("---")
         st.subheader("🖥️ System Status")
         
+        # Add system health check
+        if st.button("🔄 Health Check"):
+            if st.session_state.rag_system:
+                with st.spinner("Checking system health..."):
+                    health = st.session_state.rag_system.health_check()
+                    
+                    if health['overall_status'] == 'healthy':
+                        st.success("✅ System is healthy!")
+                    else:
+                        st.warning(f"⚠️ System status: {health['overall_status']}")
+                    
+                    # Show component status
+                    for component, status in health['components'].items():
+                        if status['status'] == 'healthy':
+                            st.success(f"✅ {component.title()}: {status['status']}")
+                        else:
+                            st.error(f"❌ {component.title()}: {status['status']}")
+                    
+                    # Show recommendations
+                    if health['recommendations']:
+                        st.subheader("💡 Recommendations")
+                        for rec in health['recommendations']:
+                            st.info(rec)
+            else:
+                st.error("❌ RAG system not initialized")
+        
         # System status indicators
         if rag_system and rag_system.search.processor:
             st.success("✅ RAG System Ready")
+            
+            # Show model info
+            model_info = rag_system.llm.get_model_info()
+            st.info(f"🤖 LLM: {model_info['model_name']} ({model_info['model_type']})")
         else:
             st.error("❌ RAG System Error")
         
