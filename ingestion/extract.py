@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from PIL import Image
 import pandas as pd
+from loguru import logger
 
 try:
     from unstructured.partition.pdf import partition_pdf
@@ -15,11 +16,13 @@ try:
         Table, Title, Header
     )
     UNSTRUCTURED_AVAILABLE = True
+    logger.info("Unstructured library available")
 except ImportError as e:
-    print(f"Warning: Unstructured library not available: {e}")
+    logger.warning(f"Unstructured library not available: {e}")
     UNSTRUCTURED_AVAILABLE = False
     # Fallback imports
     import fitz  # PyMuPDF
+    logger.info("Using PyMuPDF as fallback")
 
 @dataclass
 class ExtractedChunk:
@@ -52,8 +55,15 @@ class PDFExtractor:
     def extract_pdf_content(self, pdf_path: Path) -> List[Dict[str, Any]]:
         """Extract all content from PDF using Unstructured"""
         
+        if not pdf_path.exists():
+            logger.error(f"PDF file not found: {pdf_path}")
+            return []
+        
         if not UNSTRUCTURED_AVAILABLE:
+            logger.info("Using PyMuPDF fallback for PDF extraction")
             return self._extract_with_pymupdf(pdf_path)
+        
+        logger.info(f"Extracting content from {pdf_path} using Unstructured")
         
         # Create output directory for this PDF
         pdf_hash = self.get_pdf_hash(pdf_path)
@@ -62,19 +72,23 @@ class PDFExtractor:
         image_path_dir = output_dir / "images"
         image_path_dir.mkdir(exist_ok=True)
         
-        # Extract using Unstructured
-        elements = partition_pdf(
-            filename=str(pdf_path),
-            strategy="hi_res",
-            infer_table_structure=True,
-            extract_images_in_pdf=True,
-            extract_image_block_output_dir=str(image_path_dir),
-            extract_image_block_types=["Image"],
-            extract_image_block_to_payload=True,
-        )
+        try:
+            # Extract using Unstructured
+            elements = partition_pdf(
+                filename=str(pdf_path),
+                strategy="hi_res",
+                infer_table_structure=True,
+                extract_images_in_pdf=True,
+                extract_image_block_output_dir=str(image_path_dir),
+                extract_image_block_types=["Image"],
+                extract_image_block_to_payload=True,
+            )
+        except Exception as e:
+            logger.error(f"Failed to extract PDF with Unstructured: {e}")
+            logger.info("Falling back to PyMuPDF")
+            return self._extract_with_pymupdf(pdf_path)
         
         chunks = []
-
         texts = []
         tables = []
         images = []
@@ -144,7 +158,8 @@ class PDFExtractor:
                         # Text content
                         if isinstance(elem, (Title, Header)):
                             current_section_header = elem.text.strip()
-                            section_header = current_section_header if current_section_header else self._get_section_header(element.metadata.orig_elements, elem)
+                        
+                        section_header = current_section_header if current_section_header else self._get_section_header(element.metadata.orig_elements, elem)
 
                         content = elem.text
                         page_number=elem.metadata.page_number
@@ -171,6 +186,7 @@ class PDFExtractor:
         # Save chunk data grouped by page and type
         chunks_data = self._save_chunk_data(chunks, metadata, output_dir)
         
+        logger.info(f"Extracted {len(chunks_data)} page chunks from {pdf_path}")
         return chunks_data
 
     def _get_section_header(self, elements, current_element) -> Optional[str]:
@@ -231,6 +247,7 @@ class PDFExtractor:
             return str(image_path)
             
         except Exception as e:
+            logger.error(f"Failed to save base64 image: {e}")
             return None
 
     def _save_chunk_data(self, chunks: List[ExtractedChunk], metadata: Dict, output_dir: Path):
@@ -286,6 +303,8 @@ class PDFExtractor:
     def _extract_with_pymupdf(self, pdf_path: Path) -> List[Dict[str, Any]]:
         """Fallback extraction using PyMuPDF when Unstructured is not available"""
         
+        logger.info(f"Extracting content from {pdf_path} using PyMuPDF")
+        
         # Create output directory for this PDF
         pdf_hash = self.get_pdf_hash(pdf_path)
         output_dir = self.extracted_dir / f"{pdf_path.stem}_{pdf_hash}"
@@ -294,7 +313,12 @@ class PDFExtractor:
         image_path_dir.mkdir(exist_ok=True)
         
         chunks = []
-        doc = fitz.open(pdf_path)
+        
+        try:
+            doc = fitz.open(pdf_path)
+        except Exception as e:
+            logger.error(f"Failed to open PDF with PyMuPDF: {e}")
+            return []
         
         for page_num in range(len(doc)):
             page = doc.load_page(page_num)
@@ -344,7 +368,7 @@ class PDFExtractor:
                     
                     pix = None
                 except Exception as e:
-                    print(f"Error extracting image: {e}")
+                    logger.error(f"Error extracting image: {e}")
                     continue
         
         doc.close()
@@ -359,6 +383,7 @@ class PDFExtractor:
         }
         chunks_data = self._save_chunk_data_pymupdf(chunks, metadata, output_dir)
         
+        logger.info(f"Extracted {len(chunks_data)} page chunks from {pdf_path} using PyMuPDF")
         return chunks_data
     
     def _save_chunks_metadata_pymupdf(self, chunks: List[Dict], output_dir: Path):
@@ -446,14 +471,18 @@ class PDFExtractor:
         pdf_files = list(self.raw_dir.glob("*.pdf"))
         
         if not pdf_files:
+            logger.warning(f"No PDF files found in {self.raw_dir}")
             return {}
         
+        logger.info(f"Found {len(pdf_files)} PDF files to process")
         all_chunks = {}
         for pdf_path in pdf_files:
             try:
                 chunks = self.extract_pdf_content(pdf_path)
                 all_chunks[str(pdf_path)] = chunks
+                logger.info(f"Successfully processed {pdf_path}")
             except Exception as e:
+                logger.error(f"Failed to process {pdf_path}: {e}")
                 return {}
         
         return all_chunks
@@ -461,9 +490,12 @@ class PDFExtractor:
 if __name__ == "__main__":
     # Example usage
     extractor = PDFExtractor()
-    # all_chunks = extractor.extract_all_pdfs()
+    all_chunks = extractor.extract_all_pdfs()
     
-    # for pdf_path, chunks in all_chunks.items():
-    #     print(f"\n{pdf_path}: {len(chunks)} chunks")
-    #     for chunk in chunks[:3]:  # Show first 3 chunks
-    #         print(f"  - {chunk.chunk_type}: {chunk.content[:100]}...")
+    for pdf_path, chunks in all_chunks.items():
+        print(f"\n{pdf_path}: {len(chunks)} chunks")
+        for chunk in chunks[:3]:  # Show first 3 chunks
+            if isinstance(chunk, dict):
+                print(f"  - Page {chunk.get('metadata', {}).get('page_number', 'N/A')}")
+            else:
+                print(f"  - {chunk.chunk_type}: {chunk.content[:100]}...")

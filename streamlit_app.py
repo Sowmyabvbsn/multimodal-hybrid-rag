@@ -14,7 +14,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Import our RAG components
-from retrieval.rag_pipeline import RAGPipeline
+try:
+    from retrieval.rag_pipeline import RAGPipeline
+except ImportError as e:
+    st.error(f"Failed to import RAG components: {e}")
+    st.stop()
 
 
 # Configure Streamlit page
@@ -75,12 +79,14 @@ def initialize_session_state():
     """Initialize Streamlit session state variables"""
     if 'pipeline' not in st.session_state:
         st.session_state.pipeline = None
-    if 'hybrid_searcher' not in st.session_state:
-        st.session_state.hybrid_searcher = None
+    if 'retriever' not in st.session_state:
+        st.session_state.retriever = None
     if 'documents_processed' not in st.session_state:
         st.session_state.documents_processed = False
-    if 'chat_bot' not in st.session_state:
+    if 'search_history' not in st.session_state:
         st.session_state.search_history = []
+    if 'source_files' not in st.session_state:
+        st.session_state.source_files = []
     
 
 def setup_directories():
@@ -99,23 +105,25 @@ def load_source_files():
 
 def initialize_pipeline():
     """Initialize the RAG pipeline"""
-    if 'pipeline' in st.session_state and st.session_state.pipeline is not None:
+    if st.session_state.pipeline is not None:
         return st.session_state.pipeline
+    
     try:
         pipeline = RAGPipeline()
         
         # Check if pipeline initialization was successful
-        if pipeline.embedder.chroma_client is None:
+        if not hasattr(pipeline, 'embedder') or pipeline.embedder.chroma_client is None:
             st.error("❌ Failed to connect to ChromaDB database. Please check your setup.")
             st.info("💡 ChromaDB will be created locally in the data/chroma_db directory")
             return None
         
         load_source_files()
         st.session_state.pipeline = pipeline
+        st.session_state.retriever = pipeline.retriever
         return pipeline
     except Exception as e:
         st.error(f"Failed to initialize pipeline: {e}")
-        return None, None, None
+        return None
 
 def render_search_result(result, index: int, search_type: str = "hybrid_dense"):
     """Render a single search result"""
@@ -169,7 +177,6 @@ def render_search_result(result, index: int, search_type: str = "hybrid_dense"):
             except Exception as e:
                 st.write(f"Error rendering table: {e}")
         
-        st.markdown("</div>", unsafe_allow_html=True)
         st.markdown("---")
 
 def document_upload_page():
@@ -221,7 +228,6 @@ def document_upload_page():
                     # Create collections
                     status_text.text("Creating collections...")
                     progress_bar.progress(10)
-                    st.session_state.pipeline.extractor
                     
                     # Process PDFs
                     status_text.text("Extracting and processing PDFs...")
@@ -268,7 +274,7 @@ def document_upload_page():
                             pdf_stats = []
                             for pdf_name, stats in ingestion_result.items():
                                 pdf_stats.append({
-                                    "PDF": pdf_name,
+                                    "PDF": Path(pdf_name).name,
                                     "Total Chunks": stats["text_chunks"]+ stats["table_chunks"] + stats["image_chunks"],
                                     "Text": stats["text_chunks"],
                                     "Tables": stats["table_chunks"],
@@ -280,7 +286,7 @@ def document_upload_page():
                         
                         st.markdown('</div>', unsafe_allow_html=True)
                     else:
-                        st.error(f"Processing failed: {ingestion_result.get('message', 'Unknown error')}")
+                        st.error("Processing failed: No chunks were created")
                 
                 except Exception as e:
                     st.error(f"Error during processing: {e}")
@@ -295,14 +301,18 @@ def document_upload_page():
         st.info("ℹ️ Upload and process PDF documents to enable search functionality.")
 
 
-def hybrid_search_page():
+def semantic_search_page():
     """Semantic search page"""
-    if not st.session_state.hybrid_searcher:
-        st.session_state.hybrid_searcher = st.session_state.pipeline.retriever
+    if not st.session_state.retriever and st.session_state.pipeline:
+        st.session_state.retriever = st.session_state.pipeline.retriever
 
     st.markdown('<h1 class="main-header">🔍 Semantic Search</h1>', unsafe_allow_html=True)
 
-    st.subheader("Smart Search: Semantic similarity matching with sentence transformers")
+    if not st.session_state.documents_processed:
+        st.warning("⚠️ Please upload and process documents first before searching.")
+        return
+
+    st.subheader("Smart Search: Semantic similarity matching")
 
     # Search interface
     col1, col2 = st.columns([3, 1])
@@ -310,8 +320,8 @@ def hybrid_search_page():
     with col1:
         query = st.text_input(
             "Enter your search query:",
-            placeholder="e.g., power failure troubleshooting, cooling system diagram",
-            help="Hybrid search works best with descriptive queries"
+            placeholder="e.g., sentence embeddings, transformer models, NLP techniques",
+            help="Semantic search works best with descriptive queries"
         )
     
     with col2:
@@ -327,7 +337,7 @@ def hybrid_search_page():
             options=["All", "text", "table", "image"],
             help="Filter by content type"
         )
-    with col3:
+    with col2:
         source_file = st.selectbox(
             "Source File (optional)",
             options=["All Files"] + st.session_state.source_files,
@@ -342,39 +352,33 @@ def hybrid_search_page():
         )
     
     # Search button
-    if st.button("🚀 Semantic Search", type="primary") and query:
+    if st.button("🚀 Semantic Search", type="primary") and query and st.session_state.retriever:
         with st.spinner("Performing search..."):
             try:
                 # Apply filters
-                chunk_filter = None if content_type == "All" else content_type
+                type_filter = None if content_type == "All" else content_type
                 page_filter = None if page_number == 0 else page_number
                 source_filter = None if source_file == "All Files" else source_file
 
                 filters = {}
-                if chunk_filter:
-                    filters["type"] = chunk_filter
+                if type_filter:
+                    filters["type"] = type_filter
                 if page_filter:
                     filters["page_number"] = page_filter
                 if source_filter:
                     filters["source_file"] = source_filter
 
-
-                result_type = "semantic"
-                
                 # Perform search
-                results = st.session_state.hybrid_searcher.search(
+                results = st.session_state.retriever.search(
                     query=query,
-                    top_k=top_k,
                     filters=filters,
-                    result_type=result_type,
+                    top_k=top_k
                 )
-
-                # Results are already processed by ChromaSearch
 
                 # Add to search history
                 st.session_state.search_history.append({
                     "query": query,
-                    "type": result_type,
+                    "type": "semantic",
                     "results_count": len(results),
                     "timestamp": time.time()
                 })
@@ -384,18 +388,79 @@ def hybrid_search_page():
                     st.subheader(f"🎯 Found {len(results)} results")
                     
                     for i, result in enumerate(results):
-                        render_search_result(result, i, result_type)
+                        render_search_result(result, i, "semantic")
                 else:
                     st.info("No results found. Try a different query or adjust filters.")
                     
             except Exception as e:
-                st.error(f"Hybrid search failed: {e}")
+                st.error(f"Semantic search failed: {e}")
+                st.exception(e)
+
+def chatbot_page():
+    """Chatbot page for conversational search"""
+    st.markdown('<h1 class="main-header">💬 AI Chatbot</h1>', unsafe_allow_html=True)
+    
+    if not st.session_state.documents_processed:
+        st.warning("⚠️ Please upload and process documents first before using the chatbot.")
+        return
+    
+    st.info("🚧 Chatbot functionality coming soon! For now, please use the Semantic Search page.")
+
+def analytics_page():
+    """Analytics and statistics page"""
+    st.markdown('<h1 class="main-header">📈 Analytics</h1>', unsafe_allow_html=True)
+    
+    if not st.session_state.documents_processed:
+        st.warning("⚠️ No data to analyze. Please upload and process documents first.")
+        return
+    
+    # Search history
+    if st.session_state.search_history:
+        st.subheader("🔍 Search History")
+        
+        history_df = pd.DataFrame(st.session_state.search_history)
+        history_df['timestamp'] = pd.to_datetime(history_df['timestamp'], unit='s')
+        history_df = history_df.sort_values('timestamp', ascending=False)
+        
+        st.dataframe(history_df, use_container_width=True)
+        
+        # Search statistics
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total Searches", len(history_df))
+        with col2:
+            avg_results = history_df['results_count'].mean() if len(history_df) > 0 else 0
+            st.metric("Avg Results per Search", f"{avg_results:.1f}")
+        with col3:
+            recent_searches = len(history_df[history_df['timestamp'] > pd.Timestamp.now() - pd.Timedelta(hours=24)])
+            st.metric("Searches (24h)", recent_searches)
+    else:
+        st.info("No search history available yet. Perform some searches to see analytics.")
+    
+    # Document statistics
+    if st.session_state.pipeline and st.session_state.pipeline.embedder:
+        st.subheader("📊 Document Statistics")
+        try:
+            # Get collection info
+            collection = st.session_state.pipeline.embedder.collection
+            count = collection.count()
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Total Chunks", count)
+            with col2:
+                st.metric("Source Files", len(st.session_state.source_files))
+                
+        except Exception as e:
+            st.error(f"Failed to get document statistics: {e}")
 
 def main():
     """Main Streamlit application"""
     initialize_session_state()
     setup_directories()
-    initialize_pipeline()
+    
+    # Initialize pipeline
+    pipeline = initialize_pipeline()
     
     # Sidebar navigation
     with st.sidebar:
@@ -406,7 +471,7 @@ def main():
             "Choose a page:",
             [
                 "📤 Document Upload",
-                "🔍 Hybrid Search",
+                "🔍 Semantic Search",
                 "💬 Chatbot",
                 "📈 Analytics"
             ]
@@ -417,9 +482,9 @@ def main():
         
         # Add connection test button
         if st.button("🔄 Test Connection"):
-            if st.session_state.pipeline and st.session_state.pipeline.embedder:
+            if pipeline and hasattr(pipeline, 'embedder') and pipeline.embedder:
                 with st.spinner("Testing connection..."):
-                    if st.session_state.pipeline.embedder.test_connection():
+                    if pipeline.embedder.test_connection():
                         st.success("✅ Connection test passed!")
                     else:
                         st.error("❌ Connection test failed!")
@@ -428,14 +493,14 @@ def main():
         
         # Connection status
         try:
-            if st.session_state.pipeline:
-                if st.session_state.pipeline.embedder.chroma_client:
+            if pipeline and hasattr(pipeline, 'embedder'):
+                if pipeline.embedder and pipeline.embedder.chroma_client:
                     st.success("✅ Pipeline Ready")
                 else:
                     st.error("❌ ChromaDB Connection Failed")
             else:
                 st.warning("⚠️ Pipeline Not Initialized")
-        except:
+        except Exception:
             st.error("❌ Connection Error")
         
         if st.session_state.documents_processed:
@@ -457,7 +522,7 @@ def main():
         st.markdown("Built with Streamlit, ChromaDB, and Sentence Transformers")
     
     # Show connection troubleshooting if there are issues
-    if st.session_state.pipeline and not st.session_state.pipeline.embedder.chroma_client:
+    if pipeline and hasattr(pipeline, 'embedder') and pipeline.embedder and not pipeline.embedder.chroma_client:
         st.error("🚨 ChromaDB Connection Failed")
         st.markdown("""
         ### Troubleshooting Steps:
@@ -473,8 +538,12 @@ def main():
     # Main content area
     if page == "📤 Document Upload":
         document_upload_page()
-    elif page == "🔍 Hybrid Search":
-        hybrid_search_page()
+    elif page == "🔍 Semantic Search":
+        semantic_search_page()
+    elif page == "💬 Chatbot":
+        chatbot_page()
+    elif page == "📈 Analytics":
+        analytics_page()
 
 if __name__ == "__main__":
     main()

@@ -8,7 +8,7 @@ import google.generativeai as genai
 from PIL import Image
 from loguru import logger
 import time
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
@@ -21,6 +21,9 @@ class ChromaEmbeddingProcessor:
     """Process chunks and store embeddings in ChromaDB"""
     
     def __init__(self, google_api_key: str, db_path: str = "data/chroma_db"):
+        if not google_api_key:
+            raise ValueError("Google API key is required")
+            
         # Initialize Google AI
         genai.configure(api_key=google_api_key)
         self.google_client = genai
@@ -37,13 +40,14 @@ class ChromaEmbeddingProcessor:
             logger.info(f"ChromaDB initialized at: {self.db_path}")
         except Exception as e:
             logger.error(f"Failed to initialize ChromaDB: {e}")
-            raise
+            self.chroma_client = None
         
         # Initialize embedding models
         self._init_embedding_models()
         
         # Create collections
-        self._create_collections()
+        if self.chroma_client:
+            self._create_collections()
         
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -59,10 +63,14 @@ class ChromaEmbeddingProcessor:
             logger.info("Embedding models initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize embedding models: {e}")
-            raise
+            self.dense_model = None
     
     def _create_collections(self):
         """Create ChromaDB collections"""
+        if not self.chroma_client:
+            logger.error("Cannot create collections: ChromaDB client not initialized")
+            return
+            
         try:
             # Create unified collection
             self.collection = self.chroma_client.get_or_create_collection(
@@ -72,10 +80,13 @@ class ChromaEmbeddingProcessor:
             logger.info("ChromaDB collection created successfully")
         except Exception as e:
             logger.error(f"Failed to create collection: {e}")
-            raise
+            self.collection = None
     
     def test_connection(self) -> bool:
         """Test if ChromaDB connection is working"""
+        if not self.chroma_client:
+            return False
+            
         try:
             collections = self.chroma_client.list_collections()
             logger.info(f"ChromaDB connection test passed. Found {len(collections)} collections.")
@@ -206,6 +217,10 @@ class ChromaEmbeddingProcessor:
     
     def generate_embeddings(self, text: str) -> np.ndarray:
         """Generate embeddings for text using sentence-transformers"""
+        if not self.dense_model:
+            logger.error("Dense model not initialized")
+            return np.array([])
+            
         try:
             embeddings = self.dense_model.encode([text])
             return embeddings[0]
@@ -215,7 +230,7 @@ class ChromaEmbeddingProcessor:
     
     def store_embeddings(self, chunks: List[Dict], chunk_type: str = "text"):
         """Process and store embeddings in ChromaDB"""
-        if not chunks:
+        if not chunks or not self.collection:
             return 0
         
         documents = []
@@ -302,6 +317,10 @@ class ChromaEmbeddingProcessor:
 
     def process_all_chunks(self, chunks: List[Dict]):
         """Process all chunks and store in ChromaDB collection"""
+        if not self.chroma_client or not self.collection:
+            logger.error("Cannot process chunks: ChromaDB not properly initialized")
+            return {"text_chunks": 0, "image_chunks": 0, "table_chunks": 0, "error": "ChromaDB connection failed"}
+            
         logger.info("Starting chunk processing...")
         
         # Process text
@@ -330,6 +349,10 @@ class ChromaEmbeddingProcessor:
 
     def search(self, query: str, filters: Dict = None, top_k: int = 10) -> List[Dict]:
         """Search in ChromaDB collection"""
+        if not self.collection:
+            logger.error("Cannot search: Collection not initialized")
+            return []
+            
         try:
             # Build where clause for filtering
             where_clause = {}
@@ -397,9 +420,14 @@ class ChromaEmbeddingProcessor:
 def main():
     """Example usage"""
     
+    google_api_key = os.getenv("GOOGLE_API_KEY")
+    if not google_api_key:
+        logger.error("GOOGLE_API_KEY environment variable not set")
+        return
+    
     # Initialize processor
     processor = ChromaEmbeddingProcessor(
-        google_api_key=os.getenv("GOOGLE_API_KEY")
+        google_api_key=google_api_key
     )
     
     # Test connection

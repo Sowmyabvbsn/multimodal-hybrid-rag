@@ -10,9 +10,15 @@ load_dotenv()
 class ChromaSearch:
     def __init__(self, db_path: str = "data/chroma_db"):
         """Initialize ChromaDB search"""
+        google_api_key = os.getenv("GOOGLE_API_KEY")
+        if not google_api_key:
+            logger.error("GOOGLE_API_KEY environment variable not set")
+            self.processor = None
+            return
+            
         try:
             self.processor = ChromaEmbeddingProcessor(
-                google_api_key=os.getenv("GOOGLE_API_KEY"),
+                google_api_key=google_api_key,
                 db_path=db_path
             )
             
@@ -20,6 +26,7 @@ class ChromaSearch:
                 logger.info("ChromaSearch initialized successfully")
             else:
                 logger.error("ChromaSearch initialization failed: No ChromaDB connection")
+                self.processor = None
                 
         except Exception as e:
             logger.error(f"Failed to initialize ChromaSearch: {e}")
@@ -56,7 +63,7 @@ def main():
     search = ChromaSearch()
     
     if search.processor:
-        results = search.search("power failure troubleshooting", top_k=5)
+        results = search.search("sentence embeddings", top_k=5)
         
         for i, result in enumerate(results):
             print(f"\nResult {i+1}:")
@@ -65,6 +72,8 @@ def main():
             print(f"Source: {result['source_file']}")
             print(f"Page: {result['page_number']}")
             print(f"Text: {result['text'][:200]}...")
+    else:
+        print("ChromaSearch initialization failed")
 
 
 if __name__ == "__main__":
