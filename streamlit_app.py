@@ -105,9 +105,9 @@ def initialize_pipeline():
         pipeline = RAGPipeline()
         
         # Check if pipeline initialization was successful
-        if pipeline.embedder.qdrant_client is None:
-            st.error("❌ Failed to connect to Qdrant database. Please check your connection settings.")
-            st.info("💡 Make sure your .env file contains valid QDRANT_URL and QDRANT_API_KEY")
+        if pipeline.embedder.chroma_client is None:
+            st.error("❌ Failed to connect to ChromaDB database. Please check your setup.")
+            st.info("💡 ChromaDB will be created locally in the data/chroma_db directory")
             return None
         
         load_source_files()
@@ -296,13 +296,13 @@ def document_upload_page():
 
 
 def hybrid_search_page():
-    """Hybrid search page"""
+    """Semantic search page"""
     if not st.session_state.hybrid_searcher:
         st.session_state.hybrid_searcher = st.session_state.pipeline.retriever
 
-    st.markdown('<h1 class="main-header">🔍 Hybrid Search</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🔍 Semantic Search</h1>', unsafe_allow_html=True)
 
-    st.subheader("Smart Search: Blend of Semantic, Keyword & Hybrid matching")
+    st.subheader("Smart Search: Semantic similarity matching with sentence transformers")
 
     # Search interface
     col1, col2 = st.columns([3, 1])
@@ -316,33 +316,6 @@ def hybrid_search_page():
     
     with col2:
         top_k = st.number_input("Results", min_value=1, max_value=20, value=5)
-    
-    # Advanced options
-    with st.expander("🔧 Advanced Options", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            alpha = st.slider(
-                "Dense vs Sparse Weight",
-                min_value=0.0,
-                max_value=1.0,
-                value=0.7,
-                help="0.0 = only sparse, 1.0 = only dense"
-            )
-        
-        with col2:
-            include_images = st.checkbox(
-                "Include Images",
-                value=True,
-                help="Search image content when relevant"
-            )
-        
-        with col3:
-            rerank_results = st.checkbox(
-                "Use Reranking",
-                value=False,
-                help="Apply ColBERT reranking for better results"
-            )
     
     # Filters
     st.subheader("Filters")
@@ -369,7 +342,7 @@ def hybrid_search_page():
         )
     
     # Search button
-    if st.button("🚀 Hybrid Search", type="primary") and query:
+    if st.button("🚀 Semantic Search", type="primary") and query:
         with st.spinner("Performing search..."):
             try:
                 # Apply filters
@@ -379,44 +352,24 @@ def hybrid_search_page():
 
                 filters = {}
                 if chunk_filter:
-                    filters["metadata.type"] = chunk_filter
+                    filters["type"] = chunk_filter
                 if page_filter:
-                    filters["metadata.page_number"] = page_filter
+                    filters["page_number"] = page_filter
                 if source_filter:
-                    filters["metadata.source_file"] = source_filter
+                    filters["source_file"] = source_filter
 
 
-                # Update alpha if changed
-                result_type = (
-                        "hybrid_dense" if 0.5 < alpha <= 0.9 else
-                        "hybrid_sparse" if 0.1 <= alpha <= 0.5 else
-                        "sparse" if alpha == 1.0 else
-                        "dense"
-                    )
+                result_type = "semantic"
                 
-                if rerank_results:
-                    # Use complete pipeline for reranking
-                    # results = st.session_state.pipeline.retriever.search(
-                    #     query=query,
-                    #     top_k=top_k,
-                    #     filters=chunk_filter,
-                    # )
-                    results = st.session_state.hybrid_searcher.search(
-                        query=query,
-                        top_k=top_k,
-                        filters=filters,
-                        result_type=result_type,
-                    )
-                else:
-                    # Use hybrid search without reranking
-                    results = st.session_state.hybrid_searcher.search(
-                        query=query,
-                        top_k=top_k,
-                        filters=filters,
-                        result_type=result_type,
-                    )
+                # Perform search
+                results = st.session_state.hybrid_searcher.search(
+                    query=query,
+                    top_k=top_k,
+                    filters=filters,
+                    result_type=result_type,
+                )
 
-                results = st.session_state.hybrid_searcher.process_results(results)
+                # Results are already processed by ChromaSearch
 
                 # Add to search history
                 st.session_state.search_history.append({
@@ -431,11 +384,7 @@ def hybrid_search_page():
                     st.subheader(f"🎯 Found {len(results)} results")
                     
                     for i, result in enumerate(results):
-                        if hasattr(result, '__dict__'):
-                            result_dict = result.__dict__
-                        else:
-                            result_dict = result
-                        render_search_result(result_dict, i, result_type)
+                        render_search_result(result, i, result_type)
                 else:
                     st.info("No results found. Try a different query or adjust filters.")
                     
@@ -480,10 +429,10 @@ def main():
         # Connection status
         try:
             if st.session_state.pipeline:
-                if st.session_state.pipeline.embedder.qdrant_client:
+                if st.session_state.pipeline.embedder.chroma_client:
                     st.success("✅ Pipeline Ready")
                 else:
-                    st.error("❌ Qdrant Connection Failed")
+                    st.error("❌ ChromaDB Connection Failed")
             else:
                 st.warning("⚠️ Pipeline Not Initialized")
         except:
@@ -499,28 +448,26 @@ def main():
         ### About
         This is a complete multimodal RAG pipeline supporting:
         - **Text, Tables, and Images** from PDFs
-        - **Dense + Sparse** hybrid search
-        - **ColBERT reranking** for improved results
-        - **Multiple search modes** for different use cases
+        - **Semantic search** with sentence transformers
+        - **Local ChromaDB** vector storage
+        - **Easy setup** with no external dependencies
         """)
         
         st.markdown("---")
-        st.markdown("Built with Streamlit, Qdrant, and FastEmbed")
+        st.markdown("Built with Streamlit, ChromaDB, and Sentence Transformers")
     
     # Show connection troubleshooting if there are issues
-    if st.session_state.pipeline and not st.session_state.pipeline.embedder.qdrant_client:
-        st.error("🚨 Qdrant Connection Failed")
+    if st.session_state.pipeline and not st.session_state.pipeline.embedder.chroma_client:
+        st.error("🚨 ChromaDB Connection Failed")
         st.markdown("""
         ### Troubleshooting Steps:
-        1. **Run the connection test script**: `python test_connection.py`
-        2. **Check your `.env` file** - make sure QDRANT_URL and QDRANT_API_KEY are correct
-        3. **Verify your Qdrant Cloud cluster** is active and accessible
-        4. **Check your internet connection** and firewall settings
-        5. **Try a different network** if you're behind a corporate firewall
+        1. **Check disk space** - ChromaDB needs space to store the database
+        2. **Check file permissions** - Make sure the app can write to the data directory
+        3. **Restart the application** - Sometimes helps with initialization issues
         
         **Your current configuration:**
-        - QDRANT_URL: `{os.getenv('QDRANT_URL', 'Not set')}`
-        - QDRANT_API_KEY: `{'Set' if os.getenv('QDRANT_API_KEY') else 'Not set'}`
+        - ChromaDB Path: `data/chroma_db`
+        - Google API Key: `{'Set' if os.getenv('GOOGLE_API_KEY') else 'Not set'}`
         """)
     
     # Main content area

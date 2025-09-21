@@ -2,8 +2,8 @@ import os
 
 from loguru import logger
 from ingestion.extract import PDFExtractor
-from ingestion.vector_embeddings import QdrantEmbeddingProcessor
-from retrieval.hybrid_search import HybridSearch
+from ingestion.chroma_embeddings import ChromaEmbeddingProcessor
+from retrieval.chroma_search import ChromaSearch
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,18 +11,16 @@ load_dotenv()
 class RAGPipeline:
     def __init__(self, 
                  google_api_key: str = os.getenv("GOOGLE_API_KEY"), 
-                 qdrant_url: str = os.getenv("QDRANT_URL"),
-                 qdrant_api_key: str = os.getenv("QDRANT_API_KEY"),
+                 db_path: str = "data/chroma_db",
                  raw_dir: str = "data/raw",
                  extracted_dir: str = "data/extracted"):
 
         self.extractor = PDFExtractor(raw_dir=raw_dir, extracted_dir=extracted_dir)
-        self.embedder = QdrantEmbeddingProcessor(
+        self.embedder = ChromaEmbeddingProcessor(
             google_api_key=google_api_key,
-            qdrant_url=qdrant_url,
-            qdrant_api_key=qdrant_api_key
+            db_path=db_path
         )
-        self.retriever = HybridSearch(collection_name="unified_collection")
+        self.retriever = ChromaSearch(db_path=db_path)
 
     def extract_from_pdf(self, pdf_path: str):
         """
@@ -39,17 +37,15 @@ class RAGPipeline:
 
         return chunk_results
 
-    def hybrid_search(self, query: str, 
-               collection_name: str = "unified_collection", 
+    def search(self, query: str, 
                filters: dict = None, 
                top_k: int = 5, 
-               result_type: str = "hybrid_dense"):
+               result_type: str = "semantic"):
         """
         Retrieve relevant chunks for a query.
         """
         results = self.retriever.search(
             query=query,
-            collection_name=collection_name,
             filters=filters or {},
             top_k=top_k,
             result_type=result_type

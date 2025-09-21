@@ -60,10 +60,6 @@ class PDFExtractor:
             extract_image_block_output_dir=str(image_path_dir),
             extract_image_block_types=["Image"],
             extract_image_block_to_payload=True,
-            chunking_strategy="by_title",
-            max_characters=10000,
-            new_after_n_chars=6000,
-            combine_text_under_n_chars=2000,
         )
         
         chunks = []
