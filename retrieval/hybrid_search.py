@@ -10,39 +10,90 @@ from qdrant_client.models import SparseVector, Prefetch, Filter, FieldCondition,
 from dotenv import load_dotenv
 load_dotenv()
 
-processor = QdrantEmbeddingProcessor(
-        google_api_key=os.getenv("GOOGLE_API_KEY"),
-        qdrant_url=os.getenv("QDRANT_URL"),
-        qdrant_api_key=os.getenv("QDRANT_API_KEY")
-    )
-
-logger.info("Embedding Models Initialized")
-
-from qdrant_client.http import models as rest
-
-processor.qdrant_client.create_payload_index(
-    collection_name="unified_collection",
-    field_name="metadata.type",
-    field_schema=rest.PayloadSchemaType.KEYWORD
-)
-
-processor.qdrant_client.create_payload_index(
-    collection_name="unified_collection",
-    field_name="metadata.source_file",
-    field_schema=rest.PayloadSchemaType.KEYWORD
-)
-
-processor.qdrant_client.create_payload_index(
-    collection_name="unified_collection",
-    field_name="metadata.page_number",
-    field_schema=rest.PayloadSchemaType.INTEGER
-)
-
 class HybridSearch:
-    def __init__(self):
+    def __init__(self, collection_name: str = "unified_collection"):
         """Initialize hybrid search with weights."""
-        self.dense_model = processor.dense_model
-        self.sparse_model = processor.sparse_model
+        self.collection_name = collection_name
+        
+        # Initialize processor
+        try:
+            self.processor = QdrantEmbeddingProcessor(
+                google_api_key=os.getenv("GOOGLE_API_KEY"),
+                qdrant_url=os.getenv("QDRANT_URL"),
+                qdrant_api_key=os.getenv("QDRANT_API_KEY")
+            )
+            
+            # Only proceed if Qdrant connection is successful
+            if self.processor.qdrant_client:
+                # Create collection and indexes
+                self._ensure_collection_exists()
+                self._create_payload_indexes()
+                
+                self.dense_model = self.processor.dense_model
+                self.sparse_model = self.processor.sparse_model
+                
+                logger.info("HybridSearch initialized successfully")
+            else:
+                logger.error("HybridSearch initialization failed: No Qdrant connection")
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize HybridSearch: {e}")
+            self.processor = None
+        
+    
+    def _ensure_collection_exists(self):
+        """Ensure the collection exists, create if it doesn't"""
+        if not self.processor or not self.processor.qdrant_client:
+            logger.error("Cannot ensure collection exists: No Qdrant connection")
+            return
+        
+        try:
+            existing_collections = [col.name for col in self.processor.qdrant_client.get_collections().collections]
+            if self.collection_name not in existing_collections:
+                self.processor._create_collections()
+                logger.info(f"Created collection: {self.collection_name}")
+        except Exception as e:
+            logger.error(f"Error ensuring collection exists: {e}")
+    
+    def _create_payload_indexes(self):
+        """Create payload indexes for efficient filtering"""
+        if not self.processor or not self.processor.qdrant_client:
+            logger.error("Cannot create payload indexes: No Qdrant connection")
+            return
+        
+        try:
+            from qdrant_client.http import models as rest
+            
+            # Check if collection exists before creating indexes
+            existing_collections = [col.name for col in self.processor.qdrant_client.get_collections().collections]
+            if self.collection_name not in existing_collections:
+                logger.warning(f"Collection {self.collection_name} doesn't exist, skipping index creation")
+                return
+            
+            # Create indexes for efficient filtering
+            indexes_to_create = [
+                ("metadata.type", rest.PayloadSchemaType.KEYWORD),
+                ("metadata.source_file", rest.PayloadSchemaType.KEYWORD),
+                ("metadata.page_number", rest.PayloadSchemaType.INTEGER)
+            ]
+            
+            for field_name, schema_type in indexes_to_create:
+                try:
+                    self.processor.qdrant_client.create_payload_index(
+                        collection_name=self.collection_name,
+                        field_name=field_name,
+                        field_schema=schema_type
+                    )
+                    logger.info(f"Created index for {field_name}")
+                except Exception as e:
+                    # Index might already exist, which is fine
+                    if "already exists" in str(e).lower():
+                        logger.info(f"Index for {field_name} already exists")
+                    else:
+                        logger.warning(f"Failed to create index for {field_name}: {e}")
+                        
+        except Exception as e:
+            logger.error(f"Error creating payload indexes: {e}")
 
     def build_filter(self, filters: Dict) -> Filter | None:
         if not filters:
@@ -55,11 +106,22 @@ class HybridSearch:
             ))
         return Filter(must=conditions)
     
-    def search(self, query: str, filters: Dict, top_k: int = 10, result_type: str = "dense", collection_name: str = "unified_collection") -> List[Dict[str, Any]]:
+    def search(self, query: str, filters: Dict, top_k: int = 10, result_type: str = "dense", collection_name: str = None) -> List[Dict[str, Any]]:
         """Perform hybrid search and return ranked results."""
         
+        if not self.processor or not self.processor.qdrant_client:
+            logger.error("Cannot perform search: No Qdrant connection")
+            return []
+        
+        if collection_name is None:
+            collection_name = self.collection_name
+        
         # Generate Embeddings
-        query_embeddings = processor.generate_embeddings(query)
+        try:
+            query_embeddings = self.processor.generate_embeddings(query)
+        except Exception as e:
+            logger.error(f"Failed to generate embeddings: {e}")
+            return []
 
         sparse_vector = SparseVector(
                         indices=list(query_embeddings["sparse"].indices),
@@ -69,65 +131,70 @@ class HybridSearch:
 
         query_filters = self.build_filter(filters)
 
-        if result_type == "dense":
-            # 1. Dense search
-            dense_results = processor.qdrant_client.query_points(
-                collection_name=collection_name,
-                query=dense_embeddings,
-                using="dense",
-                limit=top_k,
-                query_filter=query_filters,
-                with_payload=True
-            )
+        try:
+            if result_type == "dense":
+                # 1. Dense search
+                dense_results = self.processor.qdrant_client.query_points(
+                    collection_name=collection_name,
+                    query=dense_embeddings,
+                    using="dense",
+                    limit=top_k,
+                    query_filter=query_filters,
+                    with_payload=True
+                )
 
-            return dense_results
+                return dense_results
 
-        elif result_type == "sparse":
-            # 2. Sparse search
-            sparse_results = processor.qdrant_client.query_points(
-                collection_name=collection_name,
-                query=sparse_vector,
-                using="sparse",
-                limit=top_k,
-                query_filter=query_filters,
-                with_payload=True
-            )
+            elif result_type == "sparse":
+                # 2. Sparse search
+                sparse_results = self.processor.qdrant_client.query_points(
+                    collection_name=collection_name,
+                    query=sparse_vector,
+                    using="sparse",
+                    limit=top_k,
+                    query_filter=query_filters,
+                    with_payload=True
+                )
 
-            return sparse_results
+                return sparse_results
 
-        # 3. Standard hybrid searches
+            # 3. Standard hybrid searches
 
-        elif result_type == "hybrid_dense":
-        # Retrieve candidates from Qdrant
-            hybrid_dense = processor.qdrant_client.query_points(
-                collection_name=collection_name,
-                query=dense_embeddings,
-                using="dense",
-                prefetch=[
-                    Prefetch(query=sparse_vector, using="sparse"),
-                ],
-                limit=top_k,
-                with_payload=True,
-                query_filter=query_filters
-            )
-            return hybrid_dense
-        
-        elif result_type == "hybrid_sparse":
-            hybrid_sparse = processor.qdrant_client.query_points(
-                collection_name=collection_name,
-                query=sparse_vector,
-                using="sparse",
-                prefetch=[
-                    Prefetch(query=dense_embeddings, using="dense"),
-                ],
-                limit=top_k,
-                with_payload=True,
-                query_filter=query_filters
-            )
-            return hybrid_sparse
+            elif result_type == "hybrid_dense":
+            # Retrieve candidates from Qdrant
+                hybrid_dense = self.processor.qdrant_client.query_points(
+                    collection_name=collection_name,
+                    query=dense_embeddings,
+                    using="dense",
+                    prefetch=[
+                        Prefetch(query=sparse_vector, using="sparse"),
+                    ],
+                    limit=top_k,
+                    with_payload=True,
+                    query_filter=query_filters
+                )
+                return hybrid_dense
+            
+            elif result_type == "hybrid_sparse":
+                hybrid_sparse = self.processor.qdrant_client.query_points(
+                    collection_name=collection_name,
+                    query=sparse_vector,
+                    using="sparse",
+                    prefetch=[
+                        Prefetch(query=dense_embeddings, using="dense"),
+                    ],
+                    limit=top_k,
+                    with_payload=True,
+                    query_filter=query_filters
+                )
+                return hybrid_sparse
 
-        else:
-            raise ValueError(f"Invalid result_type '{result_type}'. Choose from: dense, sparse, hybrid_dense, hybrid_sparse.")
+            else:
+                raise ValueError(f"Invalid result_type '{result_type}'. Choose from: dense, sparse, hybrid_dense, hybrid_sparse.")
+                
+        except Exception as e:
+            logger.error(f"Search failed: {e}")
+            return []
         
     def process_results(self, results):
         """

@@ -22,7 +22,7 @@ class RAGPipeline:
             qdrant_url=qdrant_url,
             qdrant_api_key=qdrant_api_key
         )
-        self.retriever = HybridSearch()
+        self.retriever = HybridSearch(collection_name="unified_collection")
 
     def extract_from_pdf(self, pdf_path: str):
         """

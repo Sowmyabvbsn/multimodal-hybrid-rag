@@ -103,13 +103,16 @@ def initialize_pipeline():
         return st.session_state.pipeline
     try:
         pipeline = RAGPipeline()
+        
+        # Check if pipeline initialization was successful
+        if pipeline.embedder.qdrant_client is None:
+            st.error("❌ Failed to connect to Qdrant database. Please check your connection settings.")
+            st.info("💡 Make sure your .env file contains valid QDRANT_URL and QDRANT_API_KEY")
+            return None
+        
         load_source_files()
         st.session_state.pipeline = pipeline
         return pipeline
-    except Exception as e:
-        st.error(f"Failed to initialize pipeline: {e}")
-        return None
-    
     except Exception as e:
         st.error(f"Failed to initialize pipeline: {e}")
         return None, None, None
@@ -463,10 +466,24 @@ def main():
         st.markdown("---")
         st.subheader("System Status")
         
+        # Add connection test button
+        if st.button("🔄 Test Connection"):
+            if st.session_state.pipeline and st.session_state.pipeline.embedder:
+                with st.spinner("Testing connection..."):
+                    if st.session_state.pipeline.embedder.test_connection():
+                        st.success("✅ Connection test passed!")
+                    else:
+                        st.error("❌ Connection test failed!")
+            else:
+                st.error("❌ Pipeline not initialized")
+        
         # Connection status
         try:
             if st.session_state.pipeline:
-                st.success("✅ Pipeline Ready")
+                if st.session_state.pipeline.embedder.qdrant_client:
+                    st.success("✅ Pipeline Ready")
+                else:
+                    st.error("❌ Qdrant Connection Failed")
             else:
                 st.warning("⚠️ Pipeline Not Initialized")
         except:
@@ -489,6 +506,22 @@ def main():
         
         st.markdown("---")
         st.markdown("Built with Streamlit, Qdrant, and FastEmbed")
+    
+    # Show connection troubleshooting if there are issues
+    if st.session_state.pipeline and not st.session_state.pipeline.embedder.qdrant_client:
+        st.error("🚨 Qdrant Connection Failed")
+        st.markdown("""
+        ### Troubleshooting Steps:
+        1. **Run the connection test script**: `python test_connection.py`
+        2. **Check your `.env` file** - make sure QDRANT_URL and QDRANT_API_KEY are correct
+        3. **Verify your Qdrant Cloud cluster** is active and accessible
+        4. **Check your internet connection** and firewall settings
+        5. **Try a different network** if you're behind a corporate firewall
+        
+        **Your current configuration:**
+        - QDRANT_URL: `{os.getenv('QDRANT_URL', 'Not set')}`
+        - QDRANT_API_KEY: `{'Set' if os.getenv('QDRANT_API_KEY') else 'Not set'}`
+        """)
     
     # Main content area
     if page == "📤 Document Upload":

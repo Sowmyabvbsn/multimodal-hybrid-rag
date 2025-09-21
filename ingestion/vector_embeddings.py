@@ -16,6 +16,7 @@ from fastembed import LateInteractionTextEmbedding, SparseTextEmbedding
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, SparseVectorParams, SparseVector
+from qdrant_client.http.exceptions import UnexpectedResponse
 from ingestion.extract import PDFExtractor
 from dotenv import load_dotenv
 load_dotenv()
@@ -29,20 +30,92 @@ class QdrantEmbeddingProcessor:
         genai.configure(api_key=google_api_key)
         self.google_client = genai
         
-        # Initialize Qdrant client
-        self.qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
+        # Initialize Qdrant client with connection validation
+        self.qdrant_url = qdrant_url
+        self.qdrant_api_key = qdrant_api_key
+        self.qdrant_client = None
+        self._init_qdrant_client()
         
         # Initialize FastEmbed models
         self._init_fastembed_models()
         
-        # Create collections
-        # self._create_collections()
+        # Create collections if Qdrant is connected
+        if self.qdrant_client:
+            self._create_collections()
         
         self.splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=100,
             separators=["\n\n", "\n", " ", "."]
         )
+    
+    def _init_qdrant_client(self):
+        """Initialize Qdrant client with connection validation"""
+        try:
+            if not self.qdrant_url:
+                logger.error("QDRANT_URL environment variable is not set")
+                return
+            
+            # Mask sensitive parts of URL for logging
+            masked_url = self.qdrant_url
+            if '@' in masked_url:
+                parts = masked_url.split('@')
+                if len(parts) > 1:
+                    masked_url = parts[0].split('//')[0] + '//' + '***:***@' + parts[1]
+            
+            logger.info(f"Attempting to connect to Qdrant at: {masked_url}")
+            self.qdrant_client = QdrantClient(url=self.qdrant_url, api_key=self.qdrant_api_key)
+            
+            # Test connection
+            collections = self.qdrant_client.get_collections(timeout=30)
+            logger.info(f"Successfully connected to Qdrant. Found {len(collections.collections)} existing collections.")
+            
+        except Exception as e:
+            error_msg = str(e).lower()
+            logger.error(f"Failed to connect to Qdrant: {e}")
+            
+            if "getaddrinfo failed" in error_msg or "name resolution" in error_msg:
+                logger.error("DNS Resolution Error - Possible causes:")
+                logger.error("1. Check if the Qdrant URL is correct")
+                logger.error("2. Verify internet connectivity")
+                logger.error("3. Check if you're behind a corporate firewall")
+                logger.error("4. Try using a different DNS server")
+            elif "connection refused" in error_msg:
+                logger.error("Connection Refused - Possible causes:")
+                logger.error("1. Qdrant server is not running")
+                logger.error("2. Port is blocked by firewall")
+                logger.error("3. Wrong port number in URL")
+            elif "timeout" in error_msg:
+                logger.error("Connection Timeout - Possible causes:")
+                logger.error("1. Network is slow or unstable")
+                logger.error("2. Qdrant server is overloaded")
+                logger.error("3. Firewall is blocking the connection")
+            elif "unauthorized" in error_msg or "403" in error_msg:
+                logger.error("Authentication Error - Possible causes:")
+                logger.error("1. Check if QDRANT_API_KEY is correct")
+                logger.error("2. Verify API key has proper permissions")
+            elif "404" in error_msg:
+                logger.error("Not Found Error - Possible causes:")
+                logger.error("1. Check if the Qdrant URL is correct")
+                logger.error("2. Verify the cluster is active")
+            
+            logger.error("Current configuration:")
+            logger.error(f"  QDRANT_URL: {masked_url}")
+            logger.error(f"  QDRANT_API_KEY: {'Set' if self.qdrant_api_key else 'Not set'}")
+            
+            self.qdrant_client = None
+    
+    def test_connection(self) -> bool:
+        """Test if Qdrant connection is working"""
+        if not self.qdrant_client:
+            return False
+        
+        try:
+            collections = self.qdrant_client.get_collections(timeout=10)
+            return True
+        except Exception as e:
+            logger.error(f"Connection test failed: {e}")
+            return False
     
     def _init_fastembed_models(self):
         """Initialize all FastEmbed models"""
@@ -57,6 +130,10 @@ class QdrantEmbeddingProcessor:
     
     def _create_collections(self):
         """Create Qdrant collections for text, tables, and images"""
+        if not self.qdrant_client:
+            logger.error("Cannot create collections: Qdrant client not initialized")
+            return
+        
         collections = ["text_collection", "tables_collection", "images_collection", "unified_collection"]
         
         for collection_name in collections:
@@ -77,8 +154,11 @@ class QdrantEmbeddingProcessor:
                     logger.info(f"Created collection: {collection_name}")
                 else:
                     logger.info(f"Collection {collection_name} already exists")
-            except Exception as e:
+            except (ConnectionError, UnexpectedResponse, Exception) as e:
                 logger.error(f"Failed to create collection {collection_name}: {e}")
+                if "getaddrinfo failed" in str(e):
+                    logger.error("This appears to be a network connectivity issue. Please check your Qdrant server connection.")
+                    break
     
     def create_image_summaries(self, chunks: List[Dict]) -> List[Dict]:
         """Create summaries for images using Gemini API"""
@@ -232,6 +312,10 @@ class QdrantEmbeddingProcessor:
 
     def store_embeddings(self, chunks: List[Dict], collection_name: str, chunk_type: str = "text"):
         """Process and store embeddings in Qdrant"""
+        if not self.qdrant_client:
+            logger.error("Cannot store embeddings: Qdrant client not initialized")
+            return 0
+        
         points = []
         base_uuid = uuid.uuid4()
         num_of_chunks = 0
@@ -299,11 +383,15 @@ class QdrantEmbeddingProcessor:
         
         # Batch upload to Qdrant
         if points:
-            self.qdrant_client.upsert(
-                collection_name=collection_name,
-                points=points
-            )
-            logger.info(f"Stored {len(points)} {chunk_type} embeddings")
+            try:
+                self.qdrant_client.upsert(
+                    collection_name=collection_name,
+                    points=points
+                )
+                logger.info(f"Stored {len(points)} {chunk_type} embeddings")
+            except Exception as e:
+                logger.error(f"Failed to store embeddings: {e}")
+                return 0
 
         return num_of_chunks
 
@@ -325,6 +413,10 @@ class QdrantEmbeddingProcessor:
 
     def process_all_chunks(self, chunks: List[Dict]):
         """Process all chunks and store in appropriate collections"""
+        if not self.qdrant_client:
+            logger.error("Cannot process chunks: Qdrant client not initialized")
+            return {"text_chunks": 0, "image_chunks": 0, "table_chunks": 0, "error": "Qdrant connection failed"}
+        
         logger.info("Starting chunk processing...")
         
         # Process text
