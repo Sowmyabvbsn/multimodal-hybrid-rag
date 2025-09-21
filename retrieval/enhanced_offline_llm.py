@@ -142,7 +142,7 @@ class EnhancedOfflineLLM:
         context = "\n\n".join(context_parts)
         return context, citations
     
-    def generate_rag_response(self, query: str, search_results: List[Dict[str, Any]], max_length: int = 400) -> Dict[str, Any]:
+    def generate_rag_response(self, query: str, search_results: List[Dict[str, Any]], max_length: int = 400, include_web_search: bool = False) -> Dict[str, Any]:
         """Generate RAG response with enhanced prompting and citations"""
         
         if not search_results:
@@ -150,15 +150,23 @@ class EnhancedOfflineLLM:
                 'answer': "I couldn't find any relevant information in the documents to answer your question. Please try rephrasing your query or check if the documents contain the information you're looking for.",
                 'citations': [],
                 'confidence': 0.0,
-                'model_used': 'No Results'
+                'model_used': 'No Results',
+                'web_links': [],
+                'has_multimodal_content': False
             }
         
         # Format context and citations
         context, citations = self.format_context_with_citations(search_results)
         
+        # Check for multimodal content
+        has_multimodal = any(r.get('type') in ['image', 'audio', 'table'] for r in search_results)
+        
         if not self.generator:
             # Enhanced template-based response
-            return self._enhanced_template_response(query, search_results, context, citations)
+            result = self._enhanced_template_response(query, search_results, context, citations)
+            result['web_links'] = []
+            result['has_multimodal_content'] = has_multimodal
+            return result
         
         try:
             # Create enhanced RAG prompt
@@ -191,12 +199,86 @@ class EnhancedOfflineLLM:
                 'answer': answer,
                 'citations': citations,
                 'confidence': confidence,
-                'model_used': self.model_name
+                'model_used': self.model_name,
+                'web_links': [],  # No web search in offline mode
+                'has_multimodal_content': has_multimodal
             }
             
         except Exception as e:
             print(f"❌ LLM generation failed: {e}")
-            return self._enhanced_template_response(query, search_results, context, citations)
+            result = self._enhanced_template_response(query, search_results, context, citations)
+            result['web_links'] = []
+            result['has_multimodal_content'] = has_multimodal
+            return result
+    
+    def generate_rag_response(self, query: str, search_results: List[Dict[str, Any]], max_length: int = 400, include_web_search: bool = False) -> Dict[str, Any]:
+        """Generate RAG response with enhanced prompting and citations (with web search compatibility)"""
+        
+        if not search_results:
+            return {
+                'answer': "I couldn't find any relevant information in the documents to answer your question. Please try rephrasing your query or check if the documents contain the information you're looking for.",
+                'citations': [],
+                'confidence': 0.0,
+                'model_used': 'No Results',
+                'web_links': [],
+                'has_multimodal_content': False
+            }
+        
+        # Format context and citations
+        context, citations = self.format_context_with_citations(search_results)
+        
+        # Check for multimodal content
+        has_multimodal = any(r.get('type') in ['image', 'audio', 'table'] for r in search_results)
+        
+        if not self.generator:
+            # Enhanced template-based response
+            result = self._enhanced_template_response(query, search_results, context, citations)
+            result['web_links'] = []
+            result['has_multimodal_content'] = has_multimodal
+            return result
+        
+        try:
+            # Create enhanced RAG prompt
+            prompt = self._create_enhanced_rag_prompt(query, context)
+            
+            # Generate response with better parameters
+            response = self.generator(
+                prompt,
+                max_new_tokens=max_length,
+                num_return_sequences=1,
+                temperature=0.7,
+                do_sample=True,
+                top_p=0.9,
+                repetition_penalty=1.1,
+                pad_token_id=self.tokenizer.eos_token_id,
+                truncation=True,
+                return_full_text=False
+            )
+            
+            # Extract and clean generated text
+            generated_text = response[0]['generated_text']
+            answer = self._clean_and_enhance_response(generated_text, citations)
+            
+            # Calculate confidence based on search scores and response quality
+            avg_score = sum(r.get('score', 0) for r in search_results) / len(search_results)
+            response_quality = min(len(answer.split()) / 50, 1.0)  # Quality based on response length
+            confidence = min((avg_score * 0.7 + response_quality * 0.3) * 1.2, 1.0)
+            
+            return {
+                'answer': answer,
+                'citations': citations,
+                'confidence': confidence,
+                'model_used': self.model_name,
+                'web_links': [],  # No web search in offline mode
+                'has_multimodal_content': has_multimodal
+            }
+            
+        except Exception as e:
+            print(f"❌ LLM generation failed: {e}")
+            result = self._enhanced_template_response(query, search_results, context, citations)
+            result['web_links'] = []
+            result['has_multimodal_content'] = has_multimodal
+            return result
     
     def _create_enhanced_rag_prompt(self, query: str, context: str) -> str:
         """Create an enhanced RAG prompt with better instructions"""
@@ -312,7 +394,9 @@ Answer:"""
             'answer': "\n".join(response_parts),
             'citations': citations,
             'confidence': confidence,
-            'model_used': 'Enhanced Template System'
+            'model_used': 'Enhanced Template System',
+            'web_links': [],
+            'has_multimodal_content': any(r.get('type') in ['image', 'audio', 'table'] for r in search_results)
         }
     
     def _clean_and_enhance_response(self, response: str, citations: List[Dict]) -> str:

@@ -46,7 +46,8 @@ class EnhancedOfflineRAG:
               top_k: int = 8, 
               modality_filter: str = None,
               include_llm_response: bool = True,
-              response_length: str = "medium") -> Dict[str, Any]:
+              response_length: str = "medium",
+              include_web_search: bool = True) -> Dict[str, Any]:
         """Process a query through the enhanced RAG pipeline"""
         
         print(f"\n🔍 Processing query: '{question[:50]}...'")
@@ -109,7 +110,8 @@ class EnhancedOfflineRAG:
                     llm_result = self.llm.generate_rag_response(
                         query=question, 
                         search_results=context_results,
-                        max_length=max_length
+                        max_length=max_length,
+                        include_web_search=include_web_search
                     )
                     
                     response['llm_response'] = llm_result['answer']
@@ -179,7 +181,8 @@ class EnhancedOfflineRAG:
                 llm_result = self.llm.generate_rag_response(
                     query=question, 
                     search_results=diverse_results,
-                    max_length=max_length
+                    max_length=max_length,
+                    include_web_search=True
                 )
                 
                 llm_response = llm_result['answer']
@@ -214,6 +217,41 @@ class EnhancedOfflineRAG:
                 'confidence': 0.0,
                 'metadata': {'error': str(e)}
             }
+    
+    def _select_diverse_results(self, results: List[Dict[str, Any]], max_results: int = 10) -> List[Dict[str, Any]]:
+        """Select diverse results from different modalities and sources"""
+        diverse_results = []
+        seen_sources = set()
+        modality_counts = {'text': 0, 'image': 0, 'audio': 0, 'table': 0}
+        max_per_modality = max(2, max_results // 4)
+        
+        # First pass: ensure diversity across modalities and sources
+        for result in results:
+            if len(diverse_results) >= max_results:
+                break
+                
+            modality = result.get('type', 'text')
+            source = result.get('source_file', 'unknown')
+            score = result.get('score', 0)
+            
+            # Prefer high-scoring results from different sources and modalities
+            if (modality_counts.get(modality, 0) < max_per_modality and 
+                (source not in seen_sources or len(diverse_results) < max_results // 2) and
+                score > 0.05):  # Minimum score threshold
+                
+                diverse_results.append(result)
+                seen_sources.add(source)
+                modality_counts[modality] = modality_counts.get(modality, 0) + 1
+        
+        # Second pass: fill remaining slots with best scores
+        for result in results:
+            if len(diverse_results) >= max_results:
+                break
+            if result not in diverse_results and result.get('score', 0) > 0.05:
+                diverse_results.append(result)
+        
+        print(f"📊 Selected diverse results: {dict(modality_counts)}")
+        return diverse_results[:max_results]
     
     def _select_diverse_results(self, results: List[Dict[str, Any]], max_results: int = 10) -> List[Dict[str, Any]]:
         """Select diverse results from different modalities and sources"""
