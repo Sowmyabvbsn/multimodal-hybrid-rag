@@ -1,21 +1,17 @@
 import os
 from typing import List, Dict, Any, Optional
-from loguru import logger
-from retrieval.multimodal_search import MultimodalSearch
+from retrieval.offline_search import OfflineSearch
 from retrieval.offline_llm import OfflineLLM
-from dotenv import load_dotenv
 
-load_dotenv()
-
-class MultimodalRAG:
-    """Complete multimodal RAG pipeline"""
+class OfflineRAG:
+    """Complete offline multimodal RAG pipeline"""
     
     def __init__(self, db_path: str = "data/faiss_db"):
-        """Initialize multimodal RAG system"""
-        self.search = MultimodalSearch(db_path=db_path)
+        """Initialize offline RAG system"""
+        self.search = OfflineSearch(db_path=db_path)
         self.llm = OfflineLLM()
         
-        logger.info("MultimodalRAG system initialized")
+        print("OfflineRAG system initialized")
     
     def query(self, 
               question: str, 
@@ -51,7 +47,7 @@ class MultimodalRAG:
             return response
             
         except Exception as e:
-            logger.error(f"RAG query failed: {e}")
+            print(f"RAG query failed: {e}")
             return {
                 'query': question,
                 'search_results': [],
@@ -90,7 +86,7 @@ class MultimodalRAG:
             }
             
         except Exception as e:
-            logger.error(f"Cross-modal query failed: {e}")
+            print(f"Cross-modal query failed: {e}")
             return {
                 'query': question,
                 'cross_modal_results': {},
@@ -98,16 +94,6 @@ class MultimodalRAG:
                 'llm_response': f"Sorry, I encountered an error: {str(e)}",
                 'metadata': {'error': str(e)}
             }
-    
-    def batch_query(self, questions: List[str], top_k: int = 5) -> List[Dict[str, Any]]:
-        """Process multiple queries in batch"""
-        results = []
-        
-        for question in questions:
-            result = self.query(question, top_k=top_k)
-            results.append(result)
-        
-        return results
     
     def get_system_stats(self) -> Dict[str, Any]:
         """Get system statistics"""
@@ -118,73 +104,3 @@ class MultimodalRAG:
             'llm_model': self.llm.model_name if self.llm.model else "Template-based",
             'system_status': 'operational' if self.search.processor else 'degraded'
         }
-    
-    def export_results(self, results: Dict[str, Any], format: str = 'json') -> str:
-        """Export query results to different formats"""
-        
-        if format.lower() == 'json':
-            import json
-            return json.dumps(results, indent=2, ensure_ascii=False)
-        
-        elif format.lower() == 'text':
-            output = []
-            output.append(f"Query: {results['query']}")
-            output.append("=" * 50)
-            
-            if results.get('llm_response'):
-                output.append("AI Response:")
-                output.append(results['llm_response'])
-                output.append("")
-            
-            output.append("Search Results:")
-            for i, result in enumerate(results['search_results'], 1):
-                output.append(f"\n{i}. {result['type'].upper()} - {result['source_file']}")
-                if result.get('page_number'):
-                    output.append(f"   Page: {result['page_number']}")
-                if result.get('timestamp'):
-                    output.append(f"   Time: {result['timestamp']:.1f}s")
-                output.append(f"   Score: {result['score']:.4f}")
-                output.append(f"   Content: {result['text'][:200]}...")
-            
-            return "\n".join(output)
-        
-        else:
-            raise ValueError(f"Unsupported export format: {format}")
-
-def main():
-    """Test multimodal RAG system"""
-    rag = MultimodalRAG()
-    
-    # Test single query
-    print("Testing single query...")
-    result = rag.query("What is machine learning?", top_k=3)
-    
-    print(f"Query: {result['query']}")
-    print(f"Found {len(result['search_results'])} results")
-    
-    if result['llm_response']:
-        print(f"\nAI Response:\n{result['llm_response']}")
-    
-    print("\nSearch Results:")
-    for i, res in enumerate(result['search_results'], 1):
-        print(f"{i}. {res['type']} - {res['source_file']} (Score: {res['score']:.4f})")
-    
-    # Test cross-modal query
-    print("\n" + "="*50)
-    print("Testing cross-modal query...")
-    cross_result = rag.cross_modal_query("neural networks", top_k=6)
-    
-    print(f"Cross-modal results:")
-    for modality, results in cross_result['cross_modal_results'].items():
-        print(f"  {modality}: {len(results)} results")
-    
-    # Print system stats
-    print("\n" + "="*50)
-    print("System Statistics:")
-    stats = rag.get_system_stats()
-    print(f"Search Index: {stats['search_index']}")
-    print(f"LLM Model: {stats['llm_model']}")
-    print(f"Status: {stats['system_status']}")
-
-if __name__ == "__main__":
-    main()

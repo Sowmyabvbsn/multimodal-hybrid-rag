@@ -1,12 +1,7 @@
 import os
-import json
 from typing import List, Dict, Any, Optional
 from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
 import torch
-from loguru import logger
-from dotenv import load_dotenv
-
-load_dotenv()
 
 class OfflineLLM:
     """Offline LLM for RAG responses using Hugging Face transformers"""
@@ -23,14 +18,9 @@ class OfflineLLM:
     def _init_model(self):
         """Initialize the language model"""
         try:
-            logger.info(f"Loading offline LLM: {self.model_name}")
+            print(f"Loading offline LLM: {self.model_name}")
             
             # For better offline RAG, use a more suitable model
-            # You can replace with other models like:
-            # - "microsoft/DialoGPT-small" (faster, smaller)
-            # - "gpt2" (classic, reliable)
-            # - "distilgpt2" (faster version of GPT-2)
-            
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             
             # Add padding token if not present
@@ -56,11 +46,11 @@ class OfflineLLM:
                 torch_dtype=torch.float16 if device == "cuda" else torch.float32
             )
             
-            logger.info(f"Successfully loaded {self.model_name} on {device}")
+            print(f"Successfully loaded {self.model_name} on {device}")
             
         except Exception as e:
-            logger.error(f"Failed to initialize LLM: {e}")
-            logger.info("Falling back to simple template-based responses")
+            print(f"Failed to initialize LLM: {e}")
+            print("Falling back to simple template-based responses")
             self.generator = None
     
     def format_context(self, search_results: List[Dict[str, Any]], max_context_length: int = 2000) -> str:
@@ -144,7 +134,7 @@ Answer:"""
             return answer_with_citations
             
         except Exception as e:
-            logger.error(f"Failed to generate LLM response: {e}")
+            print(f"Failed to generate LLM response: {e}")
             return self._template_response(query, search_results, context)
     
     def _template_response(self, query: str, search_results: List[Dict[str, Any]], context: str) -> str:
@@ -196,37 +186,3 @@ Answer:"""
             response += "\n\nSources:\n" + "\n".join(citations)
         
         return response
-    
-    def chat_response(self, query: str, search_results: List[Dict[str, Any]], conversation_history: List[str] = None) -> str:
-        """Generate conversational response with context"""
-        
-        # For now, use the same generation method
-        # Could be enhanced with conversation history
-        return self.generate_response(query, search_results)
-
-def main():
-    """Test offline LLM"""
-    llm = OfflineLLM()
-    
-    # Mock search results for testing
-    mock_results = [
-        {
-            'text': 'Machine learning is a subset of artificial intelligence that focuses on algorithms.',
-            'source_file': 'ml_basics.pdf',
-            'page_number': 1,
-            'type': 'text'
-        },
-        {
-            'text': 'Neural networks are computing systems inspired by biological neural networks.',
-            'source_file': 'neural_nets.pdf',
-            'page_number': 3,
-            'type': 'text'
-        }
-    ]
-    
-    response = llm.generate_response("What is machine learning?", mock_results)
-    print("Generated Response:")
-    print(response)
-
-if __name__ == "__main__":
-    main()

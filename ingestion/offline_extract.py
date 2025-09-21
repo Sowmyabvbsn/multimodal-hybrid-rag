@@ -1,32 +1,24 @@
 import os
 import json
 import hashlib
-import tempfile
-import shutil
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 import numpy as np
 from PIL import Image
 import cv2
 import pytesseract
 import whisper
-import speech_recognition as sr
-from pydub import AudioSegment
-import librosa
 import torch
 from transformers import CLIPProcessor, CLIPModel
 import docx
-from loguru import logger
-import base64
-from io import BytesIO
-
-# Import existing PDF extractor
-from ingestion.extract import PDFExtractor, ExtractedChunk
+import fitz  # PyMuPDF
+import tempfile
+from pydub import AudioSegment
 
 @dataclass
-class MultimodalChunk:
-    """Container for multimodal extracted content"""
+class OfflineChunk:
+    """Container for offline extracted content"""
     content: str
     chunk_type: str  # 'text', 'image', 'audio', 'table'
     source_file: str
@@ -38,18 +30,14 @@ class MultimodalChunk:
     audio_path: Optional[str] = None
     ocr_text: Optional[str] = None
     transcript: Optional[str] = None
-    embeddings: Optional[Dict[str, np.ndarray]] = None
 
-class MultimodalExtractor:
-    """Extract content from multiple file formats: PDF, DOCX, images, audio"""
+class OfflineExtractor:
+    """Extract content from multiple file formats completely offline"""
     
     def __init__(self, raw_dir: str = "data/raw", extracted_dir: str = "data/extracted"):
         self.raw_dir = Path(raw_dir)
         self.extracted_dir = Path(extracted_dir)
         self.extracted_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Initialize PDF extractor
-        self.pdf_extractor = PDFExtractor(raw_dir, extracted_dir)
         
         # Initialize models
         self._init_models()
@@ -65,26 +53,20 @@ class MultimodalExtractor:
     def _init_models(self):
         """Initialize AI models for processing"""
         try:
-            # Initialize CLIP for image embeddings
-            logger.info("Loading CLIP model...")
+            print("Loading CLIP model...")
             self.clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
             self.clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
             
-            # Initialize Whisper for audio transcription
-            logger.info("Loading Whisper model...")
+            print("Loading Whisper model...")
             self.whisper_model = whisper.load_model("base")
             
-            # Initialize speech recognition as backup
-            self.sr_recognizer = sr.Recognizer()
-            
-            logger.info("All models loaded successfully")
+            print("All models loaded successfully")
             
         except Exception as e:
-            logger.error(f"Failed to initialize models: {e}")
+            print(f"Failed to initialize models: {e}")
             self.clip_model = None
             self.clip_processor = None
             self.whisper_model = None
-            self.sr_recognizer = None
     
     def get_file_hash(self, file_path: Path) -> str:
         """Generate SHA-256 hash of file"""
@@ -102,56 +84,89 @@ class MultimodalExtractor:
                 return file_type
         return 'unknown'
     
-    def extract_pdf_content(self, pdf_path: Path) -> List[MultimodalChunk]:
-        """Extract PDF content using existing extractor"""
+    def extract_pdf_content(self, pdf_path: Path) -> List[OfflineChunk]:
+        """Extract PDF content using PyMuPDF"""
         try:
-            chunks_data = self.pdf_extractor.extract_pdf_content(pdf_path)
-            multimodal_chunks = []
+            chunks = []
+            file_hash = self.get_file_hash(pdf_path)
             
-            for page_data in chunks_data:
-                # Text content
-                if page_data.get('text', '').strip():
-                    chunk = MultimodalChunk(
-                        content=page_data['text'],
-                        chunk_type='text',
-                        source_file=pdf_path.name,
-                        page_number=page_data['metadata']['page_number'],
-                        metadata=page_data['metadata']
-                    )
-                    multimodal_chunks.append(chunk)
-                
-                # Image content
-                for image_data in page_data.get('image', []):
-                    chunk = MultimodalChunk(
-                        content=image_data.get('content', ''),
-                        chunk_type='image',
-                        source_file=pdf_path.name,
-                        page_number=page_data['metadata']['page_number'],
-                        image_path=image_data.get('image_path'),
-                        section_header=image_data.get('section_header'),
-                        metadata=page_data['metadata']
-                    )
-                    multimodal_chunks.append(chunk)
-                
-                # Table content
-                for table_data in page_data.get('table', []):
-                    chunk = MultimodalChunk(
-                        content=table_data.get('content', ''),
-                        chunk_type='table',
-                        source_file=pdf_path.name,
-                        page_number=page_data['metadata']['page_number'],
-                        section_header=table_data.get('section_header'),
-                        metadata=page_data['metadata']
-                    )
-                    multimodal_chunks.append(chunk)
+            # Create output directory for this PDF
+            output_dir = self.extracted_dir / f"{pdf_path.stem}_{file_hash}"
+            output_dir.mkdir(exist_ok=True)
+            image_path_dir = output_dir / "images"
+            image_path_dir.mkdir(exist_ok=True)
             
-            return multimodal_chunks
+            doc = fitz.open(pdf_path)
+            
+            for page_num in range(len(doc)):
+                page = doc.load_page(page_num)
+                
+                # Extract text
+                text = page.get_text()
+                if text.strip():
+                    chunk = OfflineChunk(
+                        content=text,
+                        chunk_type="text",
+                        source_file=pdf_path.name,
+                        page_number=page_num + 1,
+                        metadata={
+                            "document_id": file_hash,
+                            "source_file": pdf_path.name,
+                        }
+                    )
+                    chunks.append(chunk)
+                
+                # Extract images
+                image_list = page.get_images()
+                for img_index, img in enumerate(image_list):
+                    try:
+                        xref = img[0]
+                        pix = fitz.Pixmap(doc, xref)
+                        
+                        if pix.n - pix.alpha < 4:  # GRAY or RGB
+                            img_data = pix.tobytes("png")
+                            img_filename = f"page_{page_num + 1}_image_{img_index}.png"
+                            img_path = image_path_dir / img_filename
+                            
+                            with open(img_path, "wb") as f:
+                                f.write(img_data)
+                            
+                            # Perform OCR
+                            ocr_text = ""
+                            try:
+                                image = Image.open(img_path)
+                                ocr_text = pytesseract.image_to_string(image).strip()
+                            except Exception as e:
+                                print(f"OCR failed for {img_path}: {e}")
+                            
+                            chunk = OfflineChunk(
+                                content=f"Image from page {page_num + 1}" + (f" - OCR: {ocr_text}" if ocr_text else ""),
+                                chunk_type="image",
+                                source_file=pdf_path.name,
+                                page_number=page_num + 1,
+                                image_path=str(img_path),
+                                ocr_text=ocr_text,
+                                metadata={
+                                    "document_id": file_hash,
+                                    "source_file": pdf_path.name,
+                                }
+                            )
+                            chunks.append(chunk)
+                        
+                        pix = None
+                    except Exception as e:
+                        print(f"Error extracting image: {e}")
+                        continue
+            
+            doc.close()
+            print(f"Extracted {len(chunks)} chunks from PDF: {pdf_path}")
+            return chunks
             
         except Exception as e:
-            logger.error(f"Failed to extract PDF content: {e}")
+            print(f"Failed to extract PDF content: {e}")
             return []
     
-    def extract_docx_content(self, docx_path: Path) -> List[MultimodalChunk]:
+    def extract_docx_content(self, docx_path: Path) -> List[OfflineChunk]:
         """Extract content from DOCX files"""
         try:
             doc = docx.Document(docx_path)
@@ -162,7 +177,7 @@ class MultimodalExtractor:
             # Extract paragraphs
             for i, paragraph in enumerate(doc.paragraphs):
                 if paragraph.text.strip():
-                    chunk = MultimodalChunk(
+                    chunk = OfflineChunk(
                         content=paragraph.text,
                         chunk_type='text',
                         source_file=docx_path.name,
@@ -184,7 +199,7 @@ class MultimodalExtractor:
                     table_text.append(' | '.join(row_text))
                 
                 if table_text:
-                    chunk = MultimodalChunk(
+                    chunk = OfflineChunk(
                         content='\n'.join(table_text),
                         chunk_type='table',
                         source_file=docx_path.name,
@@ -196,15 +211,15 @@ class MultimodalExtractor:
                     )
                     chunks.append(chunk)
             
-            logger.info(f"Extracted {len(chunks)} chunks from DOCX: {docx_path}")
+            print(f"Extracted {len(chunks)} chunks from DOCX: {docx_path}")
             return chunks
             
         except Exception as e:
-            logger.error(f"Failed to extract DOCX content: {e}")
+            print(f"Failed to extract DOCX content: {e}")
             return []
     
-    def extract_image_content(self, image_path: Path) -> List[MultimodalChunk]:
-        """Extract content from image files using OCR and CLIP"""
+    def extract_image_content(self, image_path: Path) -> List[OfflineChunk]:
+        """Extract content from image files using OCR"""
         try:
             chunks = []
             file_hash = self.get_file_hash(image_path)
@@ -217,10 +232,10 @@ class MultimodalExtractor:
             try:
                 ocr_text = pytesseract.image_to_string(image).strip()
             except Exception as e:
-                logger.warning(f"OCR failed for {image_path}: {e}")
+                print(f"OCR failed for {image_path}: {e}")
             
             # Create image chunk
-            chunk = MultimodalChunk(
+            chunk = OfflineChunk(
                 content=f"Image: {image_path.name}" + (f" - OCR Text: {ocr_text}" if ocr_text else ""),
                 chunk_type='image',
                 source_file=image_path.name,
@@ -235,15 +250,15 @@ class MultimodalExtractor:
             )
             chunks.append(chunk)
             
-            logger.info(f"Extracted content from image: {image_path}")
+            print(f"Extracted content from image: {image_path}")
             return chunks
             
         except Exception as e:
-            logger.error(f"Failed to extract image content: {e}")
+            print(f"Failed to extract image content: {e}")
             return []
     
-    def extract_audio_content(self, audio_path: Path) -> List[MultimodalChunk]:
-        """Extract content from audio files using speech recognition"""
+    def extract_audio_content(self, audio_path: Path) -> List[OfflineChunk]:
+        """Extract content from audio files using Whisper"""
         try:
             chunks = []
             file_hash = self.get_file_hash(audio_path)
@@ -252,9 +267,13 @@ class MultimodalExtractor:
             temp_wav = None
             if audio_path.suffix.lower() != '.wav':
                 temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-                audio = AudioSegment.from_file(audio_path)
-                audio.export(temp_wav.name, format='wav')
-                wav_path = temp_wav.name
+                try:
+                    audio = AudioSegment.from_file(audio_path)
+                    audio.export(temp_wav.name, format='wav')
+                    wav_path = temp_wav.name
+                except Exception as e:
+                    print(f"Audio conversion failed: {e}")
+                    return []
             else:
                 wav_path = str(audio_path)
             
@@ -265,9 +284,9 @@ class MultimodalExtractor:
                     transcript = result['text'].strip()
                     
                     # Create segments if available
-                    if 'segments' in result:
+                    if 'segments' in result and result['segments']:
                         for segment in result['segments']:
-                            chunk = MultimodalChunk(
+                            chunk = OfflineChunk(
                                 content=segment['text'].strip(),
                                 chunk_type='audio',
                                 source_file=audio_path.name,
@@ -285,7 +304,7 @@ class MultimodalExtractor:
                             chunks.append(chunk)
                     else:
                         # Single chunk for entire audio
-                        chunk = MultimodalChunk(
+                        chunk = OfflineChunk(
                             content=transcript,
                             chunk_type='audio',
                             source_file=audio_path.name,
@@ -294,27 +313,7 @@ class MultimodalExtractor:
                             metadata={
                                 'document_id': file_hash,
                                 'source_file': audio_path.name,
-                                'duration': librosa.get_duration(filename=wav_path)
-                            }
-                        )
-                        chunks.append(chunk)
-                
-                else:
-                    # Fallback to speech_recognition
-                    with sr.AudioFile(wav_path) as source:
-                        audio_data = self.sr_recognizer.record(source)
-                        transcript = self.sr_recognizer.recognize_google(audio_data)
-                        
-                        chunk = MultimodalChunk(
-                            content=transcript,
-                            chunk_type='audio',
-                            source_file=audio_path.name,
-                            audio_path=str(audio_path),
-                            transcript=transcript,
-                            metadata={
-                                'document_id': file_hash,
-                                'source_file': audio_path.name,
-                                'duration': librosa.get_duration(filename=wav_path)
+                                'duration': result.get('duration', 0)
                             }
                         )
                         chunks.append(chunk)
@@ -322,16 +321,19 @@ class MultimodalExtractor:
             finally:
                 # Clean up temporary file
                 if temp_wav:
-                    os.unlink(temp_wav.name)
+                    try:
+                        os.unlink(temp_wav.name)
+                    except:
+                        pass
             
-            logger.info(f"Extracted {len(chunks)} audio segments from: {audio_path}")
+            print(f"Extracted {len(chunks)} audio segments from: {audio_path}")
             return chunks
             
         except Exception as e:
-            logger.error(f"Failed to extract audio content: {e}")
+            print(f"Failed to extract audio content: {e}")
             return []
     
-    def extract_file_content(self, file_path: Path) -> List[MultimodalChunk]:
+    def extract_file_content(self, file_path: Path) -> List[OfflineChunk]:
         """Extract content from any supported file type"""
         file_type = self.detect_file_type(file_path)
         
@@ -344,10 +346,10 @@ class MultimodalExtractor:
         elif file_type == 'audio':
             return self.extract_audio_content(file_path)
         else:
-            logger.warning(f"Unsupported file type: {file_path}")
+            print(f"Unsupported file type: {file_path}")
             return []
     
-    def extract_all_files(self) -> Dict[str, List[MultimodalChunk]]:
+    def extract_all_files(self) -> Dict[str, List[OfflineChunk]]:
         """Extract content from all supported files in raw directory"""
         all_files = []
         
@@ -357,10 +359,10 @@ class MultimodalExtractor:
                 all_files.extend(self.raw_dir.glob(f"*{ext}"))
         
         if not all_files:
-            logger.warning(f"No supported files found in {self.raw_dir}")
+            print(f"No supported files found in {self.raw_dir}")
             return {}
         
-        logger.info(f"Found {len(all_files)} files to process")
+        print(f"Found {len(all_files)} files to process")
         all_chunks = {}
         
         for file_path in all_files:
@@ -368,62 +370,10 @@ class MultimodalExtractor:
                 chunks = self.extract_file_content(file_path)
                 if chunks:
                     all_chunks[str(file_path)] = chunks
-                    logger.info(f"Successfully processed {file_path}: {len(chunks)} chunks")
+                    print(f"Successfully processed {file_path}: {len(chunks)} chunks")
                 else:
-                    logger.warning(f"No content extracted from {file_path}")
+                    print(f"No content extracted from {file_path}")
             except Exception as e:
-                logger.error(f"Failed to process {file_path}: {e}")
+                print(f"Failed to process {file_path}: {e}")
         
         return all_chunks
-    
-    def save_chunks_metadata(self, all_chunks: Dict[str, List[MultimodalChunk]], output_file: str = "multimodal_chunks.json"):
-        """Save extracted chunks metadata to JSON file"""
-        output_path = self.extracted_dir / output_file
-        
-        serializable_chunks = {}
-        for file_path, chunks in all_chunks.items():
-            serializable_chunks[file_path] = []
-            for chunk in chunks:
-                chunk_data = {
-                    'content': chunk.content[:500] + "..." if len(chunk.content) > 500 else chunk.content,
-                    'chunk_type': chunk.chunk_type,
-                    'source_file': chunk.source_file,
-                    'page_number': chunk.page_number,
-                    'timestamp': chunk.timestamp,
-                    'section_header': chunk.section_header,
-                    'metadata': chunk.metadata,
-                    'image_path': chunk.image_path,
-                    'audio_path': chunk.audio_path,
-                    'ocr_text': chunk.ocr_text[:200] + "..." if chunk.ocr_text and len(chunk.ocr_text) > 200 else chunk.ocr_text,
-                    'transcript': chunk.transcript[:200] + "..." if chunk.transcript and len(chunk.transcript) > 200 else chunk.transcript
-                }
-                serializable_chunks[file_path].append(chunk_data)
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(serializable_chunks, f, indent=2, ensure_ascii=False)
-        
-        logger.info(f"Saved chunks metadata to {output_path}")
-
-def main():
-    """Example usage"""
-    extractor = MultimodalExtractor()
-    all_chunks = extractor.extract_all_files()
-    
-    # Print summary
-    total_chunks = sum(len(chunks) for chunks in all_chunks.values())
-    print(f"\nExtracted {total_chunks} chunks from {len(all_chunks)} files:")
-    
-    for file_path, chunks in all_chunks.items():
-        chunk_types = {}
-        for chunk in chunks:
-            chunk_types[chunk.chunk_type] = chunk_types.get(chunk.chunk_type, 0) + 1
-        
-        print(f"\n{Path(file_path).name}: {len(chunks)} chunks")
-        for chunk_type, count in chunk_types.items():
-            print(f"  - {chunk_type}: {count}")
-    
-    # Save metadata
-    extractor.save_chunks_metadata(all_chunks)
-
-if __name__ == "__main__":
-    main()

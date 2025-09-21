@@ -2,33 +2,26 @@ import streamlit as st
 import os
 import json
 import time
-import base64
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import pandas as pd
 from PIL import Image
-import tempfile
-import shutil
-from dotenv import load_dotenv
 import plotly.express as px
 import plotly.graph_objects as go
 
-# Load environment variables
-load_dotenv()
-
-# Import our multimodal RAG components
+# Import our offline RAG components
 try:
-    from ingestion.multimodal_extract import MultimodalExtractor
-    from ingestion.faiss_embeddings import FAISSEmbeddingProcessor
-    from retrieval.multimodal_search import MultimodalSearch
-    from retrieval.multimodal_rag import MultimodalRAG
+    from ingestion.offline_extract import OfflineExtractor
+    from ingestion.offline_embeddings import OfflineEmbeddingProcessor
+    from retrieval.offline_search import OfflineSearch
+    from retrieval.offline_rag import OfflineRAG
 except ImportError as e:
-    st.error(f"Failed to import multimodal RAG components: {e}")
+    st.error(f"Failed to import offline RAG components: {e}")
     st.stop()
 
 # Configure Streamlit page
 st.set_page_config(
-    page_title="Multimodal RAG System - NTRO Hackathon",
+    page_title="Offline Multimodal RAG System",
     page_icon="🚀",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -69,22 +62,10 @@ st.markdown("""
         font-weight: bold;
         font-size: 0.8rem;
     }
-    .metadata-info {
-        color: #6c757d;
-        font-size: 0.9rem;
-    }
     .success-message {
         background-color: #d4edda;
         border: 1px solid #c3e6cb;
         color: #155724;
-        padding: 1rem;
-        border-radius: 0.25rem;
-        margin: 1rem 0;
-    }
-    .error-message {
-        background-color: #f8d7da;
-        border: 1px solid #f5c6cb;
-        color: #721c24;
         padding: 1rem;
         border-radius: 0.25rem;
         margin: 1rem 0;
@@ -101,13 +82,6 @@ st.markdown("""
     .ai-message {
         background-color: #f3e5f5;
         border-left: 4px solid #9c27b0;
-    }
-    .stats-card {
-        background-color: #ffffff;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        margin-bottom: 1rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -141,12 +115,12 @@ def load_source_files():
     return files
 
 def initialize_rag_system():
-    """Initialize the multimodal RAG system"""
+    """Initialize the offline RAG system"""
     if st.session_state.rag_system is not None:
         return st.session_state.rag_system
     
     try:
-        rag_system = MultimodalRAG()
+        rag_system = OfflineRAG()
         
         # Check if system initialization was successful
         if not rag_system.search.processor:
@@ -167,6 +141,8 @@ def get_file_icon(file_type: str) -> str:
         'docx': '📝',
         'image': '🖼️',
         'audio': '🎵',
+        'text': '📝',
+        'table': '📊',
         'unknown': '📁'
     }
     return icons.get(file_type, '📁')
@@ -191,7 +167,7 @@ def render_search_result(result: Dict[str, Any], index: int):
         
         with col4:
             if st.button(f"📋 Copy", key=f"copy_{index}"):
-                st.write("Content copied to clipboard!")
+                st.write("Content copied!")
         
         # Content preview
         content = result.get('text', '')
@@ -221,8 +197,6 @@ def render_search_result(result: Dict[str, Any], index: int):
             render_image_result(result)
         elif result.get('type') == 'audio' and result.get('audio_path'):
             render_audio_result(result)
-        elif result.get('type') == 'table':
-            render_table_result(result)
         
         st.markdown("---")
 
@@ -256,14 +230,9 @@ def render_audio_result(result: Dict[str, Any]):
         except Exception as e:
             st.write(f"Error loading audio: {e}")
 
-def render_table_result(result: Dict[str, Any]):
-    """Render table result"""
-    with st.expander("📊 View Table", expanded=False):
-        st.text(result.get('text', ''))
-
 def document_upload_page():
     """Enhanced document upload and ingestion page"""
-    st.markdown('<h1 class="main-header">🚀 Multimodal Document Processing</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🚀 Offline Multimodal Document Processing</h1>', unsafe_allow_html=True)
     
     # File uploader with multiple formats
     st.subheader("📁 Upload Documents")
@@ -349,10 +318,10 @@ def process_multimodal_files(uploaded_files):
         
         try:
             # Initialize extractor
-            status_text.text("Initializing multimodal extractor...")
+            status_text.text("Initializing offline extractor...")
             progress_bar.progress(10)
             
-            extractor = MultimodalExtractor()
+            extractor = OfflineExtractor()
             
             # Extract content
             status_text.text("Extracting content from all files...")
@@ -374,7 +343,7 @@ def process_multimodal_files(uploaded_files):
             status_text.text("Initializing FAISS index...")
             progress_bar.progress(70)
             
-            processor = FAISSEmbeddingProcessor()
+            processor = OfflineEmbeddingProcessor()
             
             # Process and index chunks
             status_text.text("Generating embeddings and building index...")
@@ -407,7 +376,7 @@ def process_multimodal_files(uploaded_files):
                 
                 # Show results
                 st.markdown('<div class="success-message">', unsafe_allow_html=True)
-                st.success("🎉 Multimodal processing completed successfully!")
+                st.success("🎉 Offline multimodal processing completed successfully!")
                 
                 # Statistics
                 col1, col2, col3, col4 = st.columns(4)
@@ -440,14 +409,10 @@ def process_multimodal_files(uploaded_files):
         finally:
             progress_bar.empty()
             status_text.empty()
-    
-    # Show current status
-    if st.session_state.documents_processed:
-        st.info("✅ Documents are ready for search. Go to the Search or Chat pages to query your documents.")
 
 def multimodal_search_page():
     """Enhanced multimodal search page"""
-    st.markdown('<h1 class="main-header">🔍 Multimodal Search</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">🔍 Offline Multimodal Search</h1>', unsafe_allow_html=True)
 
     if not st.session_state.documents_processed:
         st.warning("⚠️ Please upload and process documents first before searching.")
@@ -604,7 +569,7 @@ def display_cross_modal_results(result: Dict[str, Any]):
 
 def chat_interface_page():
     """Enhanced chat interface with RAG"""
-    st.markdown('<h1 class="main-header">💬 AI Chat Assistant</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header">💬 Offline AI Chat Assistant</h1>', unsafe_allow_html=True)
     
     if not st.session_state.documents_processed:
         st.warning("⚠️ Please upload and process documents first before using the chat.")
@@ -768,134 +733,6 @@ def analytics_dashboard():
         st.subheader("📋 Recent Searches")
         display_df = history_df[['query', 'type', 'results_count', 'modality_filter', 'timestamp']].head(10)
         st.dataframe(display_df, use_container_width=True)
-        
-        # Search trends
-        if len(history_df) > 1:
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                # Search frequency over time
-                history_df['hour'] = history_df['timestamp'].dt.hour
-                hourly_counts = history_df.groupby('hour').size()
-                
-                fig = px.bar(
-                    x=hourly_counts.index,
-                    y=hourly_counts.values,
-                    title="Search Activity by Hour"
-                )
-                fig.update_layout(xaxis_title="Hour of Day", yaxis_title="Number of Searches")
-                st.plotly_chart(fig, use_container_width=True)
-            
-            with col2:
-                # Search types distribution
-                type_counts = history_df['type'].value_counts()
-                
-                fig = px.pie(
-                    values=type_counts.values,
-                    names=type_counts.index,
-                    title="Search Types Distribution"
-                )
-                st.plotly_chart(fig, use_container_width=True)
-    
-    # Export functionality
-    st.subheader("📤 Export Data")
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        if st.button("📊 Export Analytics", use_container_width=True):
-            export_analytics_data()
-    
-    with col2:
-        if st.button("🔍 Export Search History", use_container_width=True):
-            export_search_history()
-    
-    with col3:
-        if st.button("📈 Generate Report", use_container_width=True):
-            generate_analytics_report()
-
-def export_analytics_data():
-    """Export analytics data"""
-    try:
-        data = {
-            'system_stats': st.session_state.rag_system.get_system_stats() if st.session_state.rag_system else {},
-            'processing_stats': st.session_state.processing_stats,
-            'search_history': st.session_state.search_history
-        }
-        
-        json_data = json.dumps(data, indent=2, default=str)
-        st.download_button(
-            label="📥 Download Analytics Data",
-            data=json_data,
-            file_name=f"analytics_data_{int(time.time())}.json",
-            mime="application/json"
-        )
-    except Exception as e:
-        st.error(f"Failed to export analytics data: {e}")
-
-def export_search_history():
-    """Export search history as CSV"""
-    try:
-        if st.session_state.search_history:
-            df = pd.DataFrame(st.session_state.search_history)
-            csv_data = df.to_csv(index=False)
-            st.download_button(
-                label="📥 Download Search History",
-                data=csv_data,
-                file_name=f"search_history_{int(time.time())}.csv",
-                mime="text/csv"
-            )
-        else:
-            st.info("No search history to export")
-    except Exception as e:
-        st.error(f"Failed to export search history: {e}")
-
-def generate_analytics_report():
-    """Generate comprehensive analytics report"""
-    try:
-        report_lines = []
-        report_lines.append("# Multimodal RAG System Analytics Report")
-        report_lines.append(f"Generated on: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        report_lines.append("")
-        
-        # System status
-        if st.session_state.rag_system:
-            stats = st.session_state.rag_system.get_system_stats()
-            report_lines.append("## System Status")
-            report_lines.append(f"- Status: {stats.get('system_status', 'unknown')}")
-            report_lines.append(f"- LLM Model: {stats.get('llm_model', 'Unknown')}")
-            report_lines.append(f"- Total Vectors: {stats.get('search_index', {}).get('total_vectors', 0)}")
-            report_lines.append("")
-        
-        # Processing stats
-        if st.session_state.processing_stats:
-            stats = st.session_state.processing_stats
-            report_lines.append("## Processing Statistics")
-            report_lines.append(f"- Files Processed: {stats.get('total_files', 0)}")
-            report_lines.append(f"- Total Chunks: {stats.get('total_chunks', 0)}")
-            report_lines.append(f"- Indexed Chunks: {stats.get('total_indexed', 0)}")
-            report_lines.append("")
-        
-        # Search analytics
-        if st.session_state.search_history:
-            report_lines.append("## Search Analytics")
-            report_lines.append(f"- Total Searches: {len(st.session_state.search_history)}")
-            
-            df = pd.DataFrame(st.session_state.search_history)
-            avg_results = df['results_count'].mean()
-            report_lines.append(f"- Average Results per Search: {avg_results:.1f}")
-            report_lines.append("")
-        
-        report_text = "\n".join(report_lines)
-        
-        st.download_button(
-            label="📥 Download Report",
-            data=report_text,
-            file_name=f"rag_system_report_{int(time.time())}.md",
-            mime="text/markdown"
-        )
-        
-    except Exception as e:
-        st.error(f"Failed to generate report: {e}")
 
 def main():
     """Main Streamlit application"""
@@ -907,8 +744,8 @@ def main():
     
     # Sidebar navigation
     with st.sidebar:
-        st.title("🚀 Multimodal RAG System")
-        st.markdown("**NTRO Hackathon Demo**")
+        st.title("🚀 Offline Multimodal RAG")
+
         st.markdown("---")
         
         page = st.selectbox(
@@ -953,10 +790,10 @@ def main():
         - **🔍 Cross-modal search** with FAISS
         - **🤖 Offline LLM** responses
         - **📊 Real-time analytics**
+        - **🔒 Fully offline** operation
         """)
         
-        st.markdown("---")
-        st.markdown("Built for **NTRO Hackathon** 🏆")
+        
     
     # Main content area
     if page == "📤 Document Upload":
