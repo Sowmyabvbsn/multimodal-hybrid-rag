@@ -230,7 +230,8 @@ class ChromaEmbeddingProcessor:
                 
             try:
                 text = chunk["text"]
-                metadata = chunk["metadata"].copy()
+                # Clean metadata - remove None values and ensure all values are valid types
+                metadata = self._clean_metadata(chunk["metadata"].copy())
                 metadata["type"] = chunk_type
                 
                 if chunk_type == "text":
@@ -375,6 +376,23 @@ class ChromaEmbeddingProcessor:
             logger.error(f"Search failed: {e}")
             return []
 
+    def _clean_metadata(self, metadata: Dict) -> Dict:
+        """Clean metadata by removing None values and ensuring valid types"""
+        cleaned = {}
+        for key, value in metadata.items():
+            if value is None:
+                # Skip None values entirely
+                continue
+            elif isinstance(value, (str, int, float, bool)):
+                # Keep valid primitive types
+                cleaned[key] = value
+            elif isinstance(value, (list, dict)):
+                # Convert complex types to strings
+                cleaned[key] = str(value)
+            else:
+                # Convert other types to string
+                cleaned[key] = str(value)
+        return cleaned
 
 def main():
     """Example usage"""

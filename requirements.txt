@@ -6,6 +6,7 @@ google-generativeai>=0.3.0
 
 # PDF processing
 unstructured>=0.10.0
+pdfminer.six==20231228
 pymupdf>=1.23.0
 # pdf2image>=3.1.0
 

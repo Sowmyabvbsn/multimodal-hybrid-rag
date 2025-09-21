@@ -8,10 +8,18 @@ from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from PIL import Image
 import pandas as pd
-from unstructured.partition.pdf import partition_pdf
-from unstructured.documents.elements import (
-    Table, Title, Header
-)
+
+try:
+    from unstructured.partition.pdf import partition_pdf
+    from unstructured.documents.elements import (
+        Table, Title, Header
+    )
+    UNSTRUCTURED_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: Unstructured library not available: {e}")
+    UNSTRUCTURED_AVAILABLE = False
+    # Fallback imports
+    import fitz  # PyMuPDF
 
 @dataclass
 class ExtractedChunk:
@@ -43,6 +51,9 @@ class PDFExtractor:
     
     def extract_pdf_content(self, pdf_path: Path) -> List[Dict[str, Any]]:
         """Extract all content from PDF using Unstructured"""
+        
+        if not UNSTRUCTURED_AVAILABLE:
+            return self._extract_with_pymupdf(pdf_path)
         
         # Create output directory for this PDF
         pdf_hash = self.get_pdf_hash(pdf_path)
@@ -272,6 +283,137 @@ class PDFExtractor:
         
         return chunks_data
 
+    def _extract_with_pymupdf(self, pdf_path: Path) -> List[Dict[str, Any]]:
+        """Fallback extraction using PyMuPDF when Unstructured is not available"""
+        
+        # Create output directory for this PDF
+        pdf_hash = self.get_pdf_hash(pdf_path)
+        output_dir = self.extracted_dir / f"{pdf_path.stem}_{pdf_hash}"
+        output_dir.mkdir(exist_ok=True)
+        image_path_dir = output_dir / "images"
+        image_path_dir.mkdir(exist_ok=True)
+        
+        chunks = []
+        doc = fitz.open(pdf_path)
+        
+        for page_num in range(len(doc)):
+            page = doc.load_page(page_num)
+            
+            # Extract text
+            text = page.get_text()
+            if text.strip():
+                chunk = {
+                    "content": text,
+                    "chunk_type": "text",
+                    "page_number": page_num + 1,
+                    "section_header": None,
+                    "metadata": {
+                        "document_id": pdf_hash,
+                        "source_file": pdf_path.name,
+                    }
+                }
+                chunks.append(chunk)
+            
+            # Extract images
+            image_list = page.get_images()
+            for img_index, img in enumerate(image_list):
+                try:
+                    xref = img[0]
+                    pix = fitz.Pixmap(doc, xref)
+                    
+                    if pix.n - pix.alpha < 4:  # GRAY or RGB
+                        img_data = pix.tobytes("png")
+                        img_filename = f"page_{page_num + 1}_image_{img_index}.png"
+                        img_path = image_path_dir / img_filename
+                        
+                        with open(img_path, "wb") as f:
+                            f.write(img_data)
+                        
+                        chunk = {
+                            "content": f"Image from page {page_num + 1}",
+                            "chunk_type": "image",
+                            "page_number": page_num + 1,
+                            "section_header": None,
+                            "image_path": str(img_path),
+                            "metadata": {
+                                "document_id": pdf_hash,
+                                "source_file": pdf_path.name,
+                            }
+                        }
+                        chunks.append(chunk)
+                    
+                    pix = None
+                except Exception as e:
+                    print(f"Error extracting image: {e}")
+                    continue
+        
+        doc.close()
+        
+        # Save extracted chunks metadata
+        self._save_chunks_metadata_pymupdf(chunks, output_dir)
+        
+        # Save chunk data grouped by page and type
+        metadata = {
+            "document_id": pdf_hash,
+            "source_file": pdf_path.name,
+        }
+        chunks_data = self._save_chunk_data_pymupdf(chunks, metadata, output_dir)
+        
+        return chunks_data
+    
+    def _save_chunks_metadata_pymupdf(self, chunks: List[Dict], output_dir: Path):
+        """Save chunks metadata as JSON for PyMuPDF extraction"""
+        chunks_data = []
+        for i, chunk in enumerate(chunks):
+            chunk_data = {
+                "chunk_id": i,
+                "content": chunk["content"][:500] + "..." if len(chunk["content"]) > 500 else chunk["content"],
+                "chunk_type": chunk["chunk_type"],
+                "page_number": chunk["page_number"],
+                "section_header": chunk.get("section_header"),
+                "metadata": chunk["metadata"],
+                "image_path": chunk.get("image_path"),
+            }
+            chunks_data.append(chunk_data)
+        
+        metadata_path = output_dir / "chunks_metadata.json"
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(chunks_data, f, indent=2, ensure_ascii=False)
+    
+    def _save_chunk_data_pymupdf(self, chunks: List[Dict], metadata: Dict, output_dir: Path):
+        """Save chunks data grouped by page and type for PyMuPDF extraction"""
+        # Group chunks by page number
+        page_chunks = {}
+        for chunk in chunks:
+            page_num = chunk["page_number"]
+            if page_num not in page_chunks:
+                metadata_with_page = metadata.copy()
+                metadata_with_page['page_number'] = page_num
+                page_chunks[page_num] = {"text": "", "image": [], "table": [], "metadata": metadata_with_page}
+            
+            if chunk["chunk_type"] == "text":
+                page_chunks[page_num]["text"] += chunk["content"] + " "
+            elif chunk["chunk_type"] == "image":
+                image_data = {
+                    "content": chunk["content"],
+                    "section_header": chunk.get("section_header"),
+                    "image_path": chunk.get("image_path"),
+                }
+                page_chunks[page_num]["image"].append(image_data)
+        
+        # Convert to list format ordered by page number
+        chunks_data = []
+        for page_num in sorted(page_chunks.keys()):
+            page_data = page_chunks[page_num]
+            page_data["text"] = page_data["text"].strip()
+            chunks_data.append(page_data)
+        
+        # Save to file
+        chunk_data_path = output_dir / "chunk_data.json"
+        with open(chunk_data_path, "w", encoding="utf-8") as f:
+            json.dump(chunks_data, f, indent=2, ensure_ascii=False)
+        
+        return chunks_data
 
     def _save_chunks_metadata(self, chunks: List[ExtractedChunk], output_dir: Path):
         """Save chunks metadata as JSON"""

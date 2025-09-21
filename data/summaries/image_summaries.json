@@ -1,0 +1,230 @@
+[
+  {
+    "text": "The image displays a presentation slide title, \"Distributed Representations Beyond Words and Characters,\" with the subtitle \"Sentence/Paragraph Embeddings in NLP Pipeline.\"  A blue button labeled \"Start Presentation\" is centrally positioned below the title.  The background is a dark gray textured surface.  The text is white, and the font is clean and sans-serif. At the bottom, smaller text reads \"Advanced NLP • Text Representation\". The image contains no charts or diagrams.  Given the context of \"None\" and \"Image from page 1,\" this slide likely serves as the introductory slide of a presentation on advanced natural language processing (NLP) techniques. The focus is on representing sentences and paragraphs—going beyond word and character-level representations— within an NLP pipeline, indicating a discussion on sentence and paragraph embeddings.\n",
+    "metadata": {
+      "page_number": 1,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_1_image_0.png",
+      "section_header": null,
+      "content": "Image from page 1",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image displays a comparison of traditional and modern approaches to text representation in Natural Language Processing (NLP).  The title, \"The NLP Pipeline: Text Representation Stage,\" sets the context.  The traditional approach outlines tokenization into words/characters and word embeddings (using Word2Vec and GloVe), but notes limitations such as fixed vocabulary and lack of context.  Conversely, the modern approach emphasizes contextual understanding, handling variable-length sequences, semantic composition, and moving beyond individual tokens. A key challenge is highlighted: representing sentences and paragraphs as dense vectors while preserving semantic meaning.  The image uses bullet points to clearly delineate the features of each approach, with no charts or diagrams present.  Given the \"None\" section context and page 2 location, this image likely introduces the core challenges and methods in text representation within a broader NLP pipeline explanation.\n",
+    "metadata": {
+      "page_number": 2,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_2_image_0.png",
+      "section_header": null,
+      "content": "Image from page 2",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image, from page 3 of an unspecified document, illustrates the \"Compositional Problem\" in natural language processing.  The main text introduces the challenge of creating meaningful sentence embeddings from individual word embeddings.  A code snippet demonstrates a naive approach: averaging word vectors (\"cat,\" \"sat\") to represent the sentence \"The cat sat on the mat.\"  Key visual elements include this code, showing example word vectors as numerical arrays, and a highlighted statement declaring that simple averaging fails to capture word order, syntax, and semantic relationships. This directly relates to the section title \"The Compositional Problem,\" which highlights the inadequacy of simple averaging techniques for representing sentence meaning accurately.  The image effectively visualizes a core challenge in NLP.\n",
+    "metadata": {
+      "page_number": 3,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_3_image_0.png",
+      "section_header": null,
+      "content": "Image from page 3",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image, from page 4 of an unspecified document, details problems with simple approaches to natural language processing (NLP).  It presents three sections.  The first, \"Simple Averaging Issues,\" lists drawbacks such as loss of word order, disregard for syntax, and lack of semantic composition. The second, \"Bag of Words Problem,\" illustrates how this approach fails to capture meaning; the sentences \"Dog bites man\" and \"Man bites dog\" have the same vector representation despite different meanings.  Finally, \"What We Need\" outlines the necessary improvements: preserving semantics, considering context, and maintaining relationships between words. A concluding solution statement emphasizes the need for methods that capture semantic meaning while preserving contextual relationships. The image uses bullet points to clearly list the issues and requirements, highlighting the limitations of simple averaging and bag-of-words methods in NLP.\n",
+    "metadata": {
+      "page_number": 4,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_4_image_0.png",
+      "section_header": null,
+      "content": "Image from page 4",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image, from page 5, explains sentence embeddings.  It defines them as dense vector representations capturing the semantic meaning of sentences within a fixed-dimensional space.  Key properties include fixed dimensionality (e.g., 256, 512, 768), preservation of semantic similarity, context-awareness, and task-agnostic or task-specific applicability.  The image also provides a mathematical representation: a sentence (\"The weather is beautiful today\") is input into an encoder function *f(.)*, which outputs a vector (e.g., [0.23, -0.45, 0.67...]) representing the sentence in a *d*-dimensional space.  Semantic similarity between sentences is measured using cosine similarity of their vector representations; a cosine similarity close to 1 indicates high similarity.  The visual elements are text-based explanations and a mathematical formula illustrating the embedding process and semantic similarity calculation.  The context suggests this image is part of an explanation of natural language processing techniques.\n",
+    "metadata": {
+      "page_number": 5,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_5_image_0.png",
+      "section_header": null,
+      "content": "Image from page 5",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image, likely from a natural language processing (NLP) tutorial, details methods for creating sentence embeddings.  It's divided into two main sections: \"Aggregation Methods\" and \"Sequential Models.\"  The first section lists three techniques: Simple Averaging, Weighted Averaging (using TF-IDF), and Max/Min Pooling.  A Python code snippet illustrates weighted averaging. The second section focuses on Recurrent Neural Networks (RNNs) and Long Short-Term Memory networks (LSTMs), describing how the last hidden state can serve as a sentence embedding, and mentioning bidirectional processing.  Another Python code example demonstrates LSTM-based sentence embedding creation, specifying a hidden size of 256.  The visual elements are primarily text, outlining these methods and providing illustrative code.  Given the lack of section context, the image likely forms part of an introductory explanation of sentence embedding techniques.\n",
+    "metadata": {
+      "page_number": 6,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_6_image_0.png",
+      "section_header": null,
+      "content": "Image from page 6",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image, from page 7, details methods for creating sentence embeddings, focusing on transformer-based and specialized architectures.  Section 3 outlines transformer-based methods, listing self-attention mechanisms, BERT and RoBERTa using the [CLS] token, and fine-tuned Sentence-BERT.  A Python code snippet demonstrates BERT sentence embedding generation using a tokenizer and model to extract an embedding vector from the sentence \"NLP is amazing\". Section 4 presents specialized architectures including Universal Sentence Encoder, InferSent, Quick Thoughts, and SimCSE.  Another code snippet shows how to use the Universal Sentence Encoder from TensorFlow Hub to generate embeddings for the sentence \"Hello world\".  The image visually presents these methods in a structured, bulleted list format accompanied by illustrative code examples.  The context suggests this is part of a larger discussion on Natural Language Processing (NLP) techniques for sentence embedding.\n",
+    "metadata": {
+      "page_number": 7,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_7_image_0.png",
+      "section_header": null,
+      "content": "Image from page 7",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image, from page 8, details the Universal Sentence Encoder, a popular model.  It's presented in two columns. The \"Architecture & Features\" column specifies the developer (Google Research), architecture (Transformer + Deep Averaging Network), dimensions (512), multilingual language support, and training using multiple tasks (SNLI, STS, etc.). The \"Strengths & Use Cases\" column highlights its fast inference (optimized for production), general purpose across domains, easy integration with TensorFlow Hub, solid performance as a good baseline, and multilingual capabilities supporting 16+ languages.  The image uses bullet points to clearly present the key characteristics and advantages of this natural language processing model.  There are no charts or diagrams; the information is textual.  The context suggests this is part of a section comparing or describing various popular NLP models.\n",
+    "metadata": {
+      "page_number": 8,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_8_image_0.png",
+      "section_header": null,
+      "content": "Image from page 8",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image details Sentence-BERT (SBERT), a popular natural language processing model.  The image is divided into two sections: \"Architecture & Features\" and \"Key Advantages.\"  The \"Architecture & Features\" section specifies that SBERT is developed by UKP Lab, utilizes a BERT architecture with a Siamese network, has 768-dimensional embeddings (configurable), is optimized for similarity tasks during training, and allows for task-specific adaptation via fine-tuning.  The \"Key Advantages\" section highlights SBERT's speed (65x faster than BERT pairs), state-of-the-art similarity quality, flexibility in model sizes, an extensive model zoo within its community, and its production-readiness due to optimized inference.  No charts or diagrams are present; the information is conveyed through bullet points. Given the section title is \"None,\" the image likely provides a standalone description of SBERT within a broader document, potentially serving as an introduction or reference for a discussion of popular NLP models.\n",
+    "metadata": {
+      "page_number": 9,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_9_image_0.png",
+      "section_header": null,
+      "content": "Image from page 9",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image details the InferSent model, a popular model for natural language inference.  The image is divided into two sections: \"Architecture & Features\" and \"Performance Characteristics\".  The \"Architecture & Features\" section specifies that InferSent was developed by Facebook Research, uses a BiLSTM architecture with max pooling, has a dimensionality of 4096, was trained using the Stanford Natural Language Inference dataset, and focuses on transfer learning.  The \"Performance Characteristics\" section highlights the model's good downstream performance (transfer learning), utilization of attention mechanisms (interpretability), ability to handle various text types (robustness), and its research focus on academic applications.  No charts or diagrams are present; the information is conveyed through bulleted lists.  Given the lack of surrounding section context, it's assumed this image is from a document discussing popular natural language processing models, specifically focusing on InferSent's architecture, training, and performance capabilities.\n",
+    "metadata": {
+      "page_number": 10,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_10_image_0.png",
+      "section_header": null,
+      "content": "Image from page 10",
+      "type": "image"
+    }
+  },
+  {
+    "text": "The image presents a comparison of four sentence embedding models: USE, SBERT, InferSent, and SimCSE.  The table displays each model's dimensions, speed (categorized as Fast, Very Fast, or Moderate), STS (Semantic Textual Similarity) score, and best use case.  SBERT boasts the highest STS score (0.85) and is described as \"Very Fast,\" while USE is optimized for production. InferSent has a moderate inference time.  SimCSE achieves an STS score of 0.84 and is categorized as \"Fast.\"  A supplementary section details speed comparisons, clarifying that SBERT is 65 times faster than BERT pairs, and provides definitions for STS scores and the benchmark dataset used (STS-B). The overall context suggests a performance analysis of different sentence embedding models, likely for a natural language processing application, given the focus on speed and semantic textual similarity.\n",
+    "metadata": {
+      "page_number": 11,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_11_image_0.png",
+      "section_header": null,
+      "content": "Image from page 11",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image, from page 12, presents an introduction to paragraph embeddings.  The text defines paragraph embeddings as dense vector representations capturing semantic meaning across entire documents or paragraphs, going beyond individual sentence understanding.  Key characteristics highlighted include handling variable document lengths, capturing both local and global context through hierarchical structure, maintaining semantic coherence across long text spans, and providing document-level features. A key challenge is then posed: maintaining semantic coherence in long documents while capturing both local and global structure.  The image consists primarily of text, with bullet points outlining the key characteristics and a final, highlighted statement presenting a challenge related to the topic. No charts or diagrams are present.  The content directly relates to an introductory explanation of paragraph embeddings within a larger document section (presumably focusing on Natural Language Processing or similar).\n",
+    "metadata": {
+      "page_number": 12,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_12_image_0.png",
+      "section_header": null,
+      "content": "Image from page 12",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image from page 13 describes two Doc2Vec approaches: PV-DM (Distributed Memory) and PV-DBOW (Distributed Bag of Words).  PV-DM uses a paragraph vector as additional context, predicting a word based on its context and the paragraph it belongs to; it's similar to Word2Vec CBOW, suitable for smaller datasets, and preserves word order. PV-DBOW, in contrast, predicts words given only the paragraph vector, ignoring word order; it's analogous to Word2Vec Skip-gram, offering faster training and better efficiency for large corpora.  The image highlights the key characteristics of each method in bulleted lists, including their probabilistic formulations `P(word | context_words, paragraph_id)` and `P(words | paragraph_id)`.  A \"Best Practice\" note suggests combining both PV-DM and PV-DBOW for optimal results.  The image's visual elements are primarily text-based, presenting a concise comparison of the two Doc2Vec techniques.\n",
+    "metadata": {
+      "page_number": 13,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_13_image_0.png",
+      "section_header": null,
+      "content": "Image from page 13",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image details a two-level attention mechanism within hierarchical attention networks.  The mechanism uses word-level attention to identify important words in sentences, creating sentence representations while preserving local context.  A code example shows `word_attention` calculated from words, then aggregated into `sentence_vectors`.  Sentence-level attention then identifies important sentences in a document to create document representations, capturing global structure; a similar code example is provided for `sentence_attention` and `document_vector`.  The complete process is described in three steps: aggregating words into sentence vectors using word-level attention, aggregating sentences into a document vector using sentence-level attention, and achieving a hierarchical understanding capturing both local and global semantic information. The image effectively visualizes this hierarchical attention network architecture through text descriptions and illustrative code snippets.  Given the lack of section context, the image likely explains the core functionality of the hierarchical attention networks.\n",
+    "metadata": {
+      "page_number": 14,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_14_image_0.png",
+      "section_header": null,
+      "content": "Image from page 14",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image displays a table summarizing modern transformer-based approaches for natural language processing, categorized into \"Long-Sequence Transformers\" and \"Hierarchical BERT Approaches.\"  The Long-Sequence section details Longformer (using sparse attention patterns, linear complexity, and handling up to 4,096 tokens) and BigBird (employing random, global, and local attention, offering theoretical guarantees and graph-based attention).  The Hierarchical BERT section outlines two strategies: \"Document Chunking,\" which involves processing documents in overlapping chunks, combining representations, and maintaining global context; and \"Sentence-Level Processing,\" focusing on individual sentence encoding with a document-level transformer to preserve hierarchical structure.  A final note highlights the trade-off between computational efficiency, representation quality, and maximum sequence length.  The image lacks charts or diagrams; its primary visual element is the structured text layout.  Given the \"None\" section context, this image likely illustrates different architectural choices for handling long sequences within a larger discussion of transformer models.\n",
+    "metadata": {
+      "page_number": 15,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_15_image_0.png",
+      "section_header": null,
+      "content": "Image from page 15",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image from page 16 displays information on applications of Information Retrieval & Search, specifically focusing on semantic search systems and question-answering.  The left side outlines key functionalities of semantic search systems (query understanding, document ranking, cross-lingual search, personalization) and question-answering (passage retrieval, answer extraction, context understanding). The right side provides a Python code implementation example demonstrating semantic search using the SentenceTransformer library.  The code snippet shows how to create embeddings for a corpus of text, encode a search query, find similarities between the query and corpus embeddings, and finally print the best matching text from the corpus based on the highest similarity score. The example uses 'all-MiniLM-L6-v2' model and  a sample corpus of sentences related to AI.  The context of the \"None\" section suggests this image illustrates practical applications and implementation details of the discussed techniques.\n",
+    "metadata": {
+      "page_number": 16,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_16_image_0.png",
+      "section_header": null,
+      "content": "Image from page 16",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image displays a list of applications for text classification and analysis, categorized into \"Classification Tasks\" and \"Clustering & Similarity.\"  The \"Classification Tasks\" section details Sentiment Analysis (analyzing movie reviews, product feedback, social media, and customer satisfaction), Topic Classification (categorizing news, routing emails, and organizing content), and Intent Detection (understanding chatbots, voice assistants, and automating customer service).  The \"Clustering & Similarity\" section covers Document Clustering (automatic topic discovery, content organization, and research paper grouping), Plagiarism Detection (checking academic integrity, content originality, and copyright), and Recommendation Systems (content-based filtering, suggesting similar articles, and creating personalized feeds).  The text is formatted as a bulleted list, making the various applications easily identifiable.  Given its placement on page 17 and its lack of a section title, the image likely illustrates the practical applications of text classification and analysis discussed in the preceding pages of the document.\n",
+    "metadata": {
+      "page_number": 17,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_17_image_0.png",
+      "section_header": null,
+      "content": "Image from page 17",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image displays a table outlining \"Technical Challenges\" categorized into \"Computational Complexity\" and \"Representation Quality.\"  Under Computational Complexity, \"Attention Complexity\" highlights quadratic complexity (O(n²)), rapid memory scaling, and GPU memory limitations. \"Training Resources\" notes the need for large datasets, high computational cost, and substantial energy consumption.  Representation Quality focuses on \"Information Loss\" due to fixed-size bottlenecks, loss of detail, and compression artifacts. \"Domain Adaptation\" discusses challenges with general vs. domain-specific models, transfer learning, and out-of-domain performance. The image visually presents these challenges using color-coded boxes with bullet points, making it easy to compare and contrast the issues.  Given the context (page 18, section \"None\"), this image likely summarizes technical hurdles encountered in a specific technology or process described earlier in the document.  The information suggests that the challenges are computationally intensive and related to data representation limitations.\n",
+    "metadata": {
+      "page_number": 18,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_18_image_0.png",
+      "section_header": null,
+      "content": "Image from page 18",
+      "type": "image"
+    }
+  },
+  {
+    "text": "This image displays a table outlining evaluation metrics for a system, likely in the field of natural language processing.  The metrics are categorized into Intrinsic Evaluation (focusing on inherent properties) and Extrinsic Evaluation (focusing on downstream task performance).  Intrinsic evaluation includes Semantic Textual Similarity (STS) metrics such as Pearson correlation and the STS-B benchmark dataset, as well as clustering metrics like Silhouette score and Adjusted Rand Index.  Extrinsic evaluation considers downstream task performance such as classification accuracy, information retrieval metrics, and question-answering performance.  Practical metrics, such as inference speed, memory usage, and scalability measures, are also listed.  Finally, a key trade-off is highlighted: expressiveness versus efficiency versus generalizability.  The image's content directly relates to evaluating model performance, likely a crucial part of the document's overall analysis of a specific natural language processing model or technique.\n",
+    "metadata": {
+      "page_number": 19,
+      "document_id": "920c6e4aaa10428c",
+      "source_file": "nlp-topic8.pdf",
+      "image_path": "data\\extracted\\nlp-topic8_920c6e4aaa10428c\\images\\page_19_image_0.png",
+      "section_header": null,
+      "content": "Image from page 19",
+      "type": "image"
+    }
+  }
+]
